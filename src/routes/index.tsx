@@ -12,6 +12,7 @@ import { CompleteDialog } from "@/components/countme/CompleteDialog";
 import { MobileVoiceFab } from "@/components/countme/VoicePanel";
 import { VoiceDecisionPopup } from "@/components/countme/VoiceDecisionPopup";
 import { VoiceMemoryPanel } from "@/components/countme/VoiceMemoryPanel";
+import { VoiceHotkeys } from "@/components/countme/VoiceHotkeys";
 import { useVoice } from "@/lib/voice/store";
 import { useCountMe } from "@/lib/countme/store";
 
@@ -71,6 +72,7 @@ function Index() {
       <VoiceDecisionPopup />
       <MobileVoiceFab />
       <VoiceMemoryPanel />
+      <VoiceHotkeys />
     </div>
   );
 }
