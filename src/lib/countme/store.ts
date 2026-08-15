@@ -465,6 +465,91 @@ export const useCountMe = create<CountMeState>((set, get) => {
       get().writeInventoryValue(rowId, columnId, null);
     },
 
+    // ---------- physical page engine ----------
+
+    getActivePage: () => get().pages.activePage,
+
+    setMappingOpen: (open) => set({ mappingOpen: open }),
+
+    setActivePage: (page) => {
+      const { pages } = get();
+      const next = Math.min(Math.max(1, Math.round(page)), pages.pageCount);
+      if (next === pages.activePage) return;
+      set({ pages: { ...pages, activePage: next }, pageFeedback: `Sayfa ${next} aktif` });
+      if (feedbackTimer) clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 1600);
+      persist();
+    },
+
+    nextPage: () => get().setActivePage(get().pages.activePage + 1),
+    previousPage: () => get().setActivePage(get().pages.activePage - 1),
+
+    setPageCount: (count) => {
+      const { pages, parsed } = get();
+      const target = Math.min(MAX_PAGES, Math.max(1, Math.round(count)));
+      const next = derivePages(parsed, { ...pages, pageCount: target });
+      set({ pages: next });
+      persist();
+    },
+
+    setPageColumn: (page, columnId) => {
+      const { pages, parsed } = get();
+      const col = columnId ? parsed?.columns.find((c) => c.id === columnId) : null;
+      if (columnId && (!col || col.kind === "total")) return;
+      const pageColumns = { ...pages.pageColumns };
+      // a column can only belong to one physical page
+      if (columnId) {
+        for (const key of Object.keys(pageColumns)) {
+          const p = Number(key);
+          if (p !== page && pageColumns[p] === columnId) pageColumns[p] = null;
+        }
+      }
+      pageColumns[page] = columnId;
+      set({ pages: { ...pages, pageColumns } });
+      persist();
+    },
+
+    writePageValue: (rowId, page, value, source = "USER") => {
+      const { pages, parsed, edits } = get();
+      const columnId = pageColumnId(pages, page);
+      if (!columnId) {
+        set({ error: `Sayfa ${page} için sayım kolonu eşlenmemiş. Lütfen mapping yapın.`, mappingOpen: true });
+        return;
+      }
+      const row = parsed?.rows.find((r) => r.id === rowId);
+      const col = parsed?.columns.find((c) => c.id === columnId);
+      if (!row || !col || col.kind === "total") return;
+      const key = editKey(rowId, columnId);
+      const edited = edits[key];
+      const current = edited === undefined ? row.cells[columnId]?.value ?? null : edited;
+      const occupied = current !== null && current !== undefined && String(current).trim() !== "";
+      if (source === "SYSTEM" && occupied && current !== value) {
+        set({
+          conflict: {
+            rowId,
+            page,
+            columnId,
+            existing: current as number | string,
+            value,
+            source,
+          },
+        });
+        get().focusCell(rowId, columnId);
+        return;
+      }
+      set({ pages: { ...pages, lastActiveRow: rowId } });
+      get().writeInventoryValue(rowId, columnId, value);
+    },
+
+    resolveConflict: (accept) => {
+      const c = get().conflict;
+      set({ conflict: null });
+      if (!c || !accept) return;
+      const { pages } = get();
+      set({ pages: { ...pages, lastActiveRow: c.rowId } });
+      get().writeInventoryValue(c.rowId, c.columnId, c.value);
+    },
+
     undoLast: () => {
       const { undoStack, edits } = get();
       const last = undoStack[undoStack.length - 1];
