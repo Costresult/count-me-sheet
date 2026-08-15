@@ -702,8 +702,6 @@ export const useVoice = create<VoiceStore>((set, get) => {
     },
 
     skipPrompt: () => {
-      const prompt0 = get().prompt;
-      if (!prompt0) return;
       const prompt = get().prompt;
       if (!prompt) return;
       clearPendingContext();
@@ -715,6 +713,13 @@ export const useVoice = create<VoiceStore>((set, get) => {
         outcome: "skipped",
         detail: "atlandı",
       });
+      void drain();
+    },
+
+    resumeQueue: () => {
+      if (get().state === "WAITING_FOR_USER" && !get().prompt) {
+        set({ state: capture ? "LISTENING" : "IDLE" });
+      }
       void drain();
     },
 
