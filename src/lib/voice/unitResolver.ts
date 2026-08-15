@@ -209,12 +209,15 @@ function classify(
     return { kind: "weak", value: round(q), note: info.unit ? unitLabelNote(info.unit) : "birimsiz" };
   }
 
-  // package/size interpretation: "25 gram" -> one "PAKET 25 GR"
+  // package/size interpretation: "25 gram" -> one "PAKET 25 GR".
+  // Only rows counted in packages/bottles can absorb this reading; a KILOGRAM
+  // row is a real weight row even when its name mentions a package size.
   const fam = familyOf(unit);
-  if (fam === "weight" && info.sizeGr !== null && near(toGram(q, unit), info.sizeGr)) {
+  const packageRow = info.unit !== null && familyOf(info.unit) === "count";
+  if (packageRow && fam === "weight" && info.sizeGr !== null && near(toGram(q, unit), info.sizeGr)) {
     return { kind: "package", value: 1, note: `1 × ${info.sizeGr} gr paket` };
   }
-  if (fam === "volume" && info.sizeCl !== null && near(toCl(q, unit), info.sizeCl)) {
+  if (packageRow && fam === "volume" && info.sizeCl !== null && near(toCl(q, unit), info.sizeCl)) {
     return { kind: "package", value: 1, note: `1 × ${info.sizeCl} cl` };
   }
 
@@ -281,8 +284,8 @@ export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Dest
   const asOptions = (list: typeof scored) =>
     list.map((s) => ({ row: s.row, value: s.value, note: s.note }));
 
-  // single candidate row overall
-  if (rows.length === 1 && scored.length === 1 && scored[0]!.kind !== "weak") {
+  // single candidate row overall: the destination cannot be mistaken
+  if (rows.length === 1 && scored.length === 1) {
     const s = scored[0]!;
     return {
       writes: [{ rowId: s.row.rowId, value: s.value, note: s.note }],
