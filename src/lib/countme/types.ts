@@ -46,14 +46,35 @@ export interface ViewPrefs {
 }
 
 export interface StoredSession {
-  id: "active";
+  id: string;
+  name: string;
   fileName: string;
   originalFile: ArrayBuffer;
   sheetName: string | null;
   status: SessionStatus;
   edits: Record<string, number | null>;
   view: ViewPrefs;
+  createdAt: number;
   updatedAt: number;
 }
+
+export interface SessionMeta {
+  id: string;
+  name: string;
+  fileName: string;
+  sheetName: string | null;
+  status: SessionStatus;
+  editCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const statusLabels: Record<SessionStatus, string> = {
+  IDLE: "Hazır",
+  RUNNING: "Devam Ediyor",
+  PAUSED: "Duraklatıldı",
+  PAUSED_BY_USER: "Duraklatıldı",
+  COMPLETED: "Tamamlandı",
+};
 
 export const editKey = (rowId: string, columnId: string) => `${rowId}|${columnId}`;
