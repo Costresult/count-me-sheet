@@ -59,6 +59,7 @@ function CellInput({
   return (
     <input
       inputMode="decimal"
+      data-cell={`${rowId}:${col.id}`}
       className={cn(
         "h-full w-full bg-transparent px-2 text-right text-[13px] tabular-nums outline-none",
         "focus:bg-[var(--grid-edit)] focus:ring-2 focus:ring-inset focus:ring-ring",
