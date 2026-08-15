@@ -14,8 +14,8 @@ export interface SheetColumn {
 
 export interface SheetCell {
   value: CellValue;
-  formula?: string;
-  numFmt?: string;
+  formula?: string | undefined;
+  numFmt?: string | undefined;
 }
 
 export interface SheetRow {
