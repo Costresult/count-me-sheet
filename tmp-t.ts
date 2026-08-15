@@ -1,5 +1,3 @@
-import { parseUtterance } from "./src/lib/voice/parser";
-for (const s of ["35 CL","99 CL","140 CL","otuz bes cl","doksan dokuz santilitre","Rakı Tekirdağ 35 CL 1","+1","artı 1","bir tane daha","artı 25 CL","artı yarım","2. sayfaya geç"]) {
-  const u = parseUtterance(s);
-  console.log(JSON.stringify(s), "|prod:", JSON.stringify(u.productText), "|terms:", JSON.stringify(u.terms), u.operation);
-}
+import { parseCommand } from "./src/lib/voice/commands";
+for (const s of ["2. sayfaya geç","sayfa 2","sayfa iki","ikinci sayfaya geç","ikinci sayfa","sayfa bir","birinci sayfaya geç","sonraki sayfa","önceki sayfa","10. sayfa","birincisi","Rakı Tekirdağ 35 CL"])
+  console.log(JSON.stringify(s), JSON.stringify(parseCommand(s)));
