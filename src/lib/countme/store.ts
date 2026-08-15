@@ -67,7 +67,7 @@ type UndoEntry =
       previous: number | null | undefined;
     };
 
-export type WriteSource = "USER" | "SYSTEM";
+export type WriteSource = "USER" | "SYSTEM" | "VOICE_AI";
 
 export interface WriteConflict {
   rowId: string;
@@ -123,7 +123,12 @@ interface CountMeState {
   userInterrupt: () => void;
   setSidebarOpen: (open: boolean) => void;
 
-  writeInventoryValue: (rowId: string, columnId: string, value: number | null) => void;
+  writeInventoryValue: (
+    rowId: string,
+    columnId: string,
+    value: number | null,
+    source?: ChangeSource,
+  ) => void;
   clearInventoryValue: (rowId: string, columnId: string) => void;
   undoLast: () => void;
 
@@ -587,7 +592,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
 
-    writeInventoryValue: (rowId, columnId, value) => {
+    writeInventoryValue: (rowId, columnId, value, source = "MANUAL") => {
       const { edits, parsed, undoStack, status } = get();
       const col = parsed?.columns.find((c) => c.id === columnId);
       if (!col || col.kind === "total") return;
@@ -598,7 +603,9 @@ export const useCountMe = create<CountMeState>((set, get) => {
       set({
         edits: { ...edits, [key]: value },
         undoStack: [...undoStack, { type: "cell" as const, rowId, columnId, previous }].slice(-200),
-        ...(status === "RUNNING" ? { status: "PAUSED_BY_USER" as SessionStatus } : {}),
+        ...(status === "RUNNING" && source === "MANUAL"
+          ? { status: "PAUSED_BY_USER" as SessionStatus }
+          : {}),
       });
       logHistory({
         action: value === null ? "CELL_CLEAR" : "CELL_WRITE",
@@ -607,6 +614,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
         physicalPage: pageOfColumn(columnId),
         oldValue,
         newValue: value,
+        source,
       });
       get().focusCell(rowId, columnId);
       persist();
@@ -704,7 +712,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       const edited = edits[key];
       const current = edited === undefined ? row.cells[columnId]?.value ?? null : edited;
       const occupied = current !== null && current !== undefined && String(current).trim() !== "";
-      if (source === "SYSTEM" && occupied && current !== value) {
+      if (source !== "USER" && occupied && current !== value) {
         set({
           conflict: {
             rowId,
@@ -719,7 +727,12 @@ export const useCountMe = create<CountMeState>((set, get) => {
         return;
       }
       set({ pages: { ...pages, lastActiveRow: rowId } });
-      get().writeInventoryValue(rowId, columnId, value);
+      get().writeInventoryValue(
+        rowId,
+        columnId,
+        value,
+        source === "VOICE_AI" ? "VOICE_AI" : source === "SYSTEM" ? "SYSTEM" : "MANUAL",
+      );
     },
 
     resolveConflict: (accept) => {
@@ -728,7 +741,12 @@ export const useCountMe = create<CountMeState>((set, get) => {
       if (!c || !accept) return;
       const { pages } = get();
       set({ pages: { ...pages, lastActiveRow: c.rowId } });
-      get().writeInventoryValue(c.rowId, c.columnId, c.value);
+      get().writeInventoryValue(
+        c.rowId,
+        c.columnId,
+        c.value,
+        c.source === "VOICE_AI" ? "VOICE_AI" : c.source === "SYSTEM" ? "SYSTEM" : "MANUAL",
+      );
     },
 
     undoLast: () => {

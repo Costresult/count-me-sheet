@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { useCountMe } from "@/lib/countme/store";
 import { parseNumericInput } from "@/lib/countme/calc";
 import { Trash2 } from "lucide-react";
+import { buildProductIndex } from "@/lib/voice/productIndex";
+import { learnAlias, recordCorrection } from "@/lib/voice/aliases";
+import { useVoice } from "@/lib/voice/store";
 
 const input =
   "h-9 min-w-0 rounded-md border border-border bg-background px-2 text-[13px] text-foreground";
@@ -18,6 +21,36 @@ export function UnmatchedPanel() {
   const update = useCountMe((s) => s.updateUnmatchedProduct);
   const remove = useCountMe((s) => s.removeUnmatchedProduct);
   const resolve = useCountMe((s) => s.resolveUnmatchedToRow);
+  const activeId = useCountMe((s) => s.activeId);
+  const refreshAliases = useVoice((s) => s.refreshAliases);
+
+  // A manual match is the strongest learning evidence we have.
+  const learnFromManualMatch = async (
+    spoken: string,
+    rowId: string,
+    physicalPage: number,
+  ) => {
+    const row = buildProductIndex(parsed).find((r) => r.rowId === rowId);
+    if (!row || !spoken.trim()) return;
+    await learnAlias({
+      spokenAlias: spoken,
+      targetProductIdentity: row.groupKey,
+      targetProductName: row.name,
+      targetUnit: row.unitText || null,
+      source: "USER_CORRECTION",
+    });
+    await recordCorrection({
+      sessionId: activeId,
+      rawTranscript: spoken,
+      aiCandidate: null,
+      aiRowId: null,
+      correctedRowId: row.rowId,
+      correctedName: row.label,
+      physicalPage,
+      unitContext: row.unitText || null,
+    });
+    await refreshAliases();
+  };
 
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -126,7 +159,11 @@ export function UnmatchedPanel() {
                   defaultValue=""
                   className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[13px]"
                   onChange={(e) => {
-                    if (e.target.value) resolve(u.id, e.target.value);
+                    if (e.target.value) {
+                      const rowId = e.target.value;
+                      void learnFromManualMatch(u.rawInput || u.name, rowId, u.physicalPage);
+                      resolve(u.id, rowId);
+                    }
                   }}
                 >
                   <option value="">Mevcut ürünle eşleştir…</option>
