@@ -4,7 +4,7 @@ import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
 import { candidateGroups, matchProduct, type MatchConfidence } from "./matcher";
-import { resolveUnitDestination } from "./unitResolver";
+import { resolveDestination, type UnitConfidence } from "./unitResolver";
 import {
   learnAlias,
   listAliases,
@@ -21,6 +21,7 @@ export type VoiceState =
   | "PROCESSING"
   | "PAUSED"
   | "PAUSED_BY_USER"
+  | "WAITING_FOR_USER"
   | "ERROR";
 
 export type MicMode = "continuous" | "push";
@@ -40,11 +41,18 @@ export interface CandidateOption {
   rowId: string;
   label: string;
   score: number;
+  value: number;
+  note: string;
 }
 
 export interface CandidatePrompt {
   utterance: ParsedUtterance;
   confidence: MatchConfidence;
+  productConfidence: MatchConfidence;
+  unitConfidence: UnitConfidence;
+  productScore: number;
+  productLabel: string | null;
+  question: string;
   options: CandidateOption[];
   aiBestRowId: string | null;
   kind: "product" | "unit";
@@ -75,6 +83,8 @@ interface VoiceStore {
   /** Feeds a transcript into the engine (mic or automated tests). */
   ingestTranscript: (text: string) => void;
   chooseCandidate: (index: number) => Promise<void>;
+  /** Explicit row pick from the stock search inside the popup. */
+  chooseRow: (rowId: string) => Promise<void>;
   dismissPrompt: (toUnmatched?: boolean) => void;
 }
 
