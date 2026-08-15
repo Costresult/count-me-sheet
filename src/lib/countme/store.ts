@@ -14,12 +14,16 @@ import {
   type AddedColumn,
   editKey,
   emptyPages,
+  type ChangeAction,
+  type ChangeSource,
+  type HistoryEvent,
   type PageState,
   type ParsedSheet,
   type SessionMeta,
   type SessionStatus,
   type SheetColumn,
   type StoredSession,
+  type UnmatchedProduct,
   type ViewPrefs,
 } from "./types";
 
@@ -50,11 +54,18 @@ export interface FocusTarget {
   token: number;
 }
 
-interface UndoEntry {
-  rowId: string;
-  columnId: string;
-  previous: number | null | undefined;
-}
+type UndoEntry =
+  | { type: "cell"; rowId: string; columnId: string; previous: number | null | undefined }
+  | { type: "unmatched-add"; id: string }
+  | { type: "unmatched-remove"; item: UnmatchedProduct }
+  | { type: "unmatched-update"; item: UnmatchedProduct }
+  | {
+      type: "unmatched-resolve";
+      item: UnmatchedProduct;
+      rowId: string;
+      columnId: string;
+      previous: number | null | undefined;
+    };
 
 export type WriteSource = "USER" | "SYSTEM";
 
@@ -93,6 +104,10 @@ interface CountMeState {
   conflict: WriteConflict | null;
   mappingOpen: boolean;
   addedColumns: AddedColumn[];
+  unmatched: UnmatchedProduct[];
+  history: HistoryEvent[];
+  unmatchedOpen: boolean;
+  completeOpen: boolean;
 
   init: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -111,6 +126,24 @@ interface CountMeState {
   writeInventoryValue: (rowId: string, columnId: string, value: number | null) => void;
   clearInventoryValue: (rowId: string, columnId: string) => void;
   undoLast: () => void;
+
+  // unmatched products
+  setUnmatchedOpen: (open: boolean) => void;
+  setCompleteOpen: (open: boolean) => void;
+  addUnmatchedProduct: (
+    name: string,
+    amount: number | null,
+    unit: string,
+    physicalPage: number,
+    rawInput: string,
+    source?: ChangeSource,
+  ) => string | null;
+  updateUnmatchedProduct: (
+    id: string,
+    patch: Partial<Pick<UnmatchedProduct, "name" | "amount" | "unit" | "physicalPage">>,
+  ) => void;
+  removeUnmatchedProduct: (id: string) => void;
+  resolveUnmatchedToRow: (id: string, rowId: string) => void;
 
   // physical page engine
   setActivePage: (page: number) => void;
@@ -139,6 +172,8 @@ interface CountMeState {
   resetView: () => void;
 
   exportFile: () => Promise<void>;
+  exportDraft: () => Promise<void>;
+  completeInventory: () => Promise<void>;
 }
 
 const emptyView = (): ViewPrefs => ({ columnWidths: {}, rowHeight: DEFAULT_ROW_HEIGHT });
