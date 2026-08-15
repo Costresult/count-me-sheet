@@ -93,6 +93,7 @@ export function SheetGrid() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [frozen, setFrozen] = useState(true);
   const [flash, setFlash] = useState<{ rowId: string; columnId: string | null } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; col: SheetColumn } | null>(null);
 
   useEffect(() => {
     const update = () => setFrozen(window.innerWidth >= 700);
@@ -202,8 +203,12 @@ export function SheetGrid() {
   const items = virtualizer.getVirtualItems();
 
   return (
-    <div ref={scrollRef} className="relative h-full w-full overflow-auto overscroll-contain bg-card">
-      <div style={{ width: totalWidth }} className="relative">
+    <div
+      ref={scrollRef}
+      className="relative h-full w-full overflow-auto overscroll-contain bg-card"
+      onScroll={() => menu && setMenu(null)}
+    >
+      <div style={{ width: totalWidth, minWidth: "100%" }} className="relative">
         {/* header */}
         <div className="sticky top-0 z-30 flex h-10 border-b border-border bg-[var(--grid-header)]">
           <div className="sticky left-0 z-10 flex w-14 shrink-0 items-center justify-center border-r border-border bg-[var(--grid-header)] text-[11px] text-muted-foreground">
@@ -223,6 +228,10 @@ export function SheetGrid() {
                 col.kind === "total" && "bg-[var(--grid-total-header)]",
               )}
               onDoubleClick={() => autoFit(col)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ x: e.clientX, y: e.clientY, col });
+              }}
               title={`${col.header} (${col.letter})`}
             >
               <span className="truncate text-[12px] font-semibold text-foreground">{col.header}</span>
@@ -331,6 +340,47 @@ export function SheetGrid() {
           })}
         </div>
       </div>
+
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-50" onPointerDown={() => setMenu(null)} />
+          <div
+            className="fixed z-50 w-56 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-lg"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            <button
+              type="button"
+              className="block w-full px-3 py-2 text-left text-[13px] hover:bg-secondary"
+              onClick={() => {
+                autoFit(menu.col);
+                setMenu(null);
+              }}
+            >
+              Kolonu Otomatik Sığdır
+            </button>
+            <button
+              type="button"
+              className="block w-full px-3 py-2 text-left text-[13px] hover:bg-secondary"
+              onClick={() => {
+                columns.forEach(autoFit);
+                setMenu(null);
+              }}
+            >
+              Tüm Kolonları Sığdır
+            </button>
+            <button
+              type="button"
+              className="block w-full px-3 py-2 text-left text-[13px] hover:bg-secondary"
+              onClick={() => {
+                useCountMe.getState().resetView();
+                setMenu(null);
+              }}
+            >
+              Görünümü Sıfırla
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
