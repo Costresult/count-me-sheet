@@ -12,7 +12,7 @@ const VARIANTS: Record<string, UnitCode> = {
   fici: "FICI", varil: "FICI", keg: "FICI",
   gram: "GRAM", gr: "GRAM", g: "GRAM", grami: "GRAM",
   kg: "KG", kilo: "KG", kilogram: "KG", kilograms: "KG", kgs: "KG",
-  cl: "CL", santilitre: "CL", cc: "CL",
+  cl: "CL", santilitre: "CL", centilitre: "CL", santilitresi: "CL", cc: "CL",
   l: "L", lt: "L", litre: "L", liter: "L", lit: "L", ltr: "L",
   ml: "CL", // handled with a factor below
 };
