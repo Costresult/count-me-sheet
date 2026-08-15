@@ -10,6 +10,14 @@ export interface SheetColumn {
   kind: ColumnKind;
   hidden: boolean;
   defaultWidth: number;
+  /** Column that does not exist in the original workbook yet; created for extra physical pages. */
+  virtual?: boolean;
+}
+
+/** A count column the user added on top of the original workbook structure. */
+export interface AddedColumn {
+  id: string;
+  header: string;
 }
 
 export interface SheetCell {
@@ -72,6 +80,7 @@ export interface StoredSession {
   edits: Record<string, number | null>;
   view: ViewPrefs;
   pages?: PageState;
+  addedColumns?: AddedColumn[];
   createdAt: number;
   updatedAt: number;
 }
