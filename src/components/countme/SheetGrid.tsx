@@ -91,12 +91,12 @@ export function SheetGrid() {
   const setColumnWidth = useCountMe((s) => s.setColumnWidth);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [frozen, setFrozen] = useState(true);
+  const [maxFrozen, setMaxFrozen] = useState(FROZEN_MAX);
   const [flash, setFlash] = useState<{ rowId: string; columnId: string | null } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; col: SheetColumn } | null>(null);
 
   useEffect(() => {
-    const update = () => setFrozen(window.innerWidth >= 700);
+    const update = () => setMaxFrozen(window.innerWidth >= 700 ? FROZEN_MAX : 1);
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -108,11 +108,11 @@ export function SheetGrid() {
   const widths = useMemo(() => columns.map((c) => columnWidth(view, c)), [columns, view]);
   const totalWidth = widths.reduce((a, b) => a + b, 0) + 56;
 
-  const frozenCount = frozen
-    ? Math.min(FROZEN_MAX, columns.findIndex((c) => c.kind !== "identity") === -1
-        ? FROZEN_MAX
-        : columns.findIndex((c) => c.kind !== "identity"))
-    : 0;
+  const identityRun =
+    columns.findIndex((c) => c.kind !== "identity") === -1
+      ? columns.length
+      : columns.findIndex((c) => c.kind !== "identity");
+  const frozenCount = Math.max(0, Math.min(maxFrozen, identityRun));
 
   const leftOffsets = useMemo(() => {
     const out: number[] = [];
