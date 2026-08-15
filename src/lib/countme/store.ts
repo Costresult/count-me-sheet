@@ -312,6 +312,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
     conflict: null,
     mappingOpen: false,
     addedColumns: [],
+    unmatched: [],
+    history: [],
+    unmatchedOpen: false,
+    completeOpen: false,
 
     refreshSessions: async () => {
       set({ sessions: await listSessions() });
