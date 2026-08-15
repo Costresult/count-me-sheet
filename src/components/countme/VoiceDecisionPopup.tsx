@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useVoice } from "@/lib/voice/store";
 import { useCountMe } from "@/lib/countme/store";
 import { StockSearch } from "./StockSearch";
-import { ListPlus, Search } from "lucide-react";
+import { ListPlus, Search, X } from "lucide-react";
 
 const conf: Record<string, string> = { HIGH: "Yüksek", MEDIUM: "Orta", LOW: "Belirsiz" };
 
@@ -12,6 +12,7 @@ export function VoiceDecisionPopup() {
   const choose = useVoice((s) => s.chooseCandidate);
   const chooseRow = useVoice((s) => s.chooseRow);
   const dismiss = useVoice((s) => s.dismissPrompt);
+  const cancel = useVoice((s) => s.cancelPrompt);
   const focusRow = useCountMe((s) => s.focusProductRow);
   const [searching, setSearching] = useState(false);
 
@@ -26,9 +27,20 @@ export function VoiceDecisionPopup() {
       data-testid="voice-decision-popup"
       className="pointer-events-auto fixed right-3 top-1/2 z-50 w-[min(92vw,340px)] -translate-y-1/2 rounded-lg border border-border bg-card p-3 shadow-2xl"
     >
-      <p className="text-[11px] font-black uppercase tracking-wide text-primary">
-        Eşleştirme Gerekiyor
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] font-black uppercase tracking-wide text-primary">
+          Eşleştirme Gerekiyor
+        </p>
+        <button
+          type="button"
+          aria-label="Kapat"
+          data-testid="voice-decision-close"
+          onClick={() => cancel()}
+          className="-mr-1 -mt-1 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
       <p className="mt-1 text-[12px] text-muted-foreground">
         Duyulan: <span className="font-semibold text-foreground">“{prompt.utterance.rawTranscript}”</span>
       </p>
