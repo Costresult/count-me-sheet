@@ -216,6 +216,18 @@ export const useVoice = create<VoiceStore>((set, get) => {
         : null;
       const value = learned ? learned.correctedValue : w.value;
       cme().writePageValue(w.rowId, page, value, "VOICE_AI");
+      // Occupied cell → the store raised a REPLACE/ADD/CANCEL conflict; nothing
+      // was written yet, so no context or learning record may be created.
+      if (cme().conflict) {
+        pushEntry({
+          rawTranscript: u.rawTranscript,
+          normalizedTranscript: u.normalizedTranscript,
+          physicalPage: page,
+          outcome: "candidates",
+          detail: `${row?.label ?? w.rowId}: dolu hücre kararı bekleniyor`,
+        });
+        return;
+      }
       const columnId = cme().pages.pageColumns[page] ?? null;
       if (columnId) {
         voiceWrites.set(`${w.rowId}|${columnId}`, {
