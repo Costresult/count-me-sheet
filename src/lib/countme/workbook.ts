@@ -129,6 +129,7 @@ export function parseSheet(
     let formulas = 0;
     for (const row of sample) {
       const cell = row.cells[col.id];
+      if (!cell) continue;
       if (cell.formula) formulas++;
       if (isBlank(cell.value)) continue;
       filled++;
@@ -189,7 +190,7 @@ export async function exportWithEdits(
   const rowById = new Map(parsed.rows.map((r) => [r.id, r]));
 
   for (const [key, value] of Object.entries(edits)) {
-    const [rowId, colId] = key.split("|");
+    const [rowId = "", colId = ""] = key.split("|");
     const row = rowById.get(rowId);
     const col = colById.get(colId);
     if (!row || !col || col.kind === "total") continue;
