@@ -669,5 +669,57 @@ if (typeof window !== "undefined") {
       const v = useVoice.getState();
       if (v.state === "LISTENING" || v.state === "PROCESSING") v.pauseListening(true);
     }
+    // An open matching decision must never survive a manual intervention.
+    if (state.status === "PAUSED_BY_USER" && prev.status !== "PAUSED_BY_USER") {
+      const v = useVoice.getState();
+      if (v.prompt) v.cancelPrompt();
+    }
+
+    // Manual correction of a cell the voice engine wrote = strong learning evidence.
+    if (state.history !== prev.history && state.history.length > prev.history.length) {
+      const ev = state.history[state.history.length - 1];
+      if (
+        ev &&
+        ev.source === "MANUAL" &&
+        (ev.action === "CELL_WRITE" || ev.action === "CELL_CLEAR") &&
+        ev.rowId &&
+        ev.columnId
+      ) {
+        const key = `${ev.rowId}|${ev.columnId}`;
+        const written = voiceWrites.get(key);
+        if (written && Number(ev.oldValue) === written.value && ev.newValue !== written.value) {
+          voiceWrites.delete(key);
+          const corrected = Number(ev.newValue);
+          void (async () => {
+            await recordCorrection({
+              sessionId: state.activeId,
+              rawTranscript: written.rawTranscript,
+              normalizedTranscript: written.normalizedTranscript,
+              aiCandidate: written.rowLabel,
+              aiRowId: written.rowId,
+              aiUnit: written.spokenUnit,
+              aiValue: written.value,
+              correctedRowId: ev.rowId!,
+              correctedName: written.rowLabel,
+              correctedValue: Number.isFinite(corrected) ? corrected : null,
+              correctedUnit: written.spokenUnit,
+              physicalPage: written.page,
+              unitContext: written.spokenUnit,
+              kind: "VALUE",
+            });
+            if (Number.isFinite(corrected)) {
+              await learnUnitCorrection({
+                rowId: written.rowId,
+                rowLabel: written.rowLabel,
+                spokenUnit: written.spokenUnit,
+                spokenQuantity: written.spokenQuantity,
+                correctedValue: corrected,
+              });
+            }
+            await useVoice.getState().refreshAliases();
+          })();
+        }
+      }
+    }
   });
 }
