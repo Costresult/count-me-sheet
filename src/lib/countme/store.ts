@@ -633,17 +633,31 @@ export const useCountMe = create<CountMeState>((set, get) => {
     setActivePage: (page) => {
       const { pages } = get();
       const next = Math.min(Math.max(1, Math.round(page)), MAX_PAGES);
-      if (next === pages.activePage) return;
+      const showFeedback = (text: string) => {
+        set({ pageFeedback: text });
+        if (feedbackTimer) clearTimeout(feedbackTimer);
+        feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 2000);
+      };
+      if (Math.round(page) < 1 || Math.round(page) > MAX_PAGES) {
+        showFeedback(`Sayfa ${Math.round(page)} geçersiz (1–${MAX_PAGES})`);
+        return;
+      }
+      if (next === pages.activePage) {
+        showFeedback(`SAYFA ${next} AKTİF`);
+        return;
+      }
       // pages are dynamic: moving forward grows the page count when needed
       const pageCount = Math.max(pages.pageCount, next);
       const pageColumns = { ...pages.pageColumns };
       for (let p = 1; p <= pageCount; p++) if (!(p in pageColumns)) pageColumns[p] = null;
       set({
         pages: { ...pages, activePage: next, pageCount, pageColumns },
-        pageFeedback: pageColumns[next] ? `Sayfa ${next} aktif` : null,
       });
-      if (feedbackTimer) clearTimeout(feedbackTimer);
-      feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 1600);
+      showFeedback(
+        pageColumns[next]
+          ? `SAYFA ${next} AKTİF`
+          : `SAYFA ${next} AKTİF · bu sayfa için sayım kolonu gerekli`,
+      );
       persist();
     },
 
