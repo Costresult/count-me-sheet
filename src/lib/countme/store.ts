@@ -686,15 +686,164 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     undoLast: () => {
-      const { undoStack, edits } = get();
+      const { undoStack, edits, unmatched } = get();
       const last = undoStack[undoStack.length - 1];
       if (!last) return;
-      const key = editKey(last.rowId, last.columnId);
-      const next = { ...edits };
-      if (last.previous === undefined) delete next[key];
-      else next[key] = last.previous;
-      set({ edits: next, undoStack: undoStack.slice(0, -1) });
-      get().focusCell(last.rowId, last.columnId);
+      const rest = undoStack.slice(0, -1);
+
+      const restoreCell = (rowId: string, columnId: string, previous: number | null | undefined) => {
+        const next = { ...get().edits };
+        const key = editKey(rowId, columnId);
+        if (previous === undefined) delete next[key];
+        else next[key] = previous;
+        set({ edits: next });
+      };
+
+      if (last.type === "cell") {
+        restoreCell(last.rowId, last.columnId, last.previous);
+        set({ undoStack: rest });
+        logHistory({
+          action: "UNDO",
+          rowId: last.rowId,
+          columnId: last.columnId,
+          physicalPage: pageOfColumn(last.columnId),
+          newValue: last.previous ?? null,
+          note: "cell undo",
+        });
+        get().focusCell(last.rowId, last.columnId);
+      } else if (last.type === "unmatched-add") {
+        set({ unmatched: unmatched.filter((u) => u.id !== last.id), undoStack: rest });
+        logHistory({ action: "UNDO", note: "unmatched add undo" });
+      } else if (last.type === "unmatched-remove" || last.type === "unmatched-update") {
+        set({
+          unmatched: [...unmatched.filter((u) => u.id !== last.item.id), last.item].sort(
+            (a, b) => a.timestamp - b.timestamp,
+          ),
+          undoStack: rest,
+        });
+        logHistory({ action: "UNDO", note: "unmatched restore" });
+      } else {
+        // unmatched -> existing product move
+        restoreCell(last.rowId, last.columnId, last.previous);
+        set({
+          unmatched: [...unmatched.filter((u) => u.id !== last.item.id), last.item].sort(
+            (a, b) => a.timestamp - b.timestamp,
+          ),
+          undoStack: rest,
+        });
+        logHistory({
+          action: "UNDO",
+          rowId: last.rowId,
+          columnId: last.columnId,
+          note: "unmatched resolve undo",
+        });
+      }
+      // edits key removal handled above
+      void edits;
+      persist();
+    },
+
+    // ---------- unmatched products ----------
+
+    setUnmatchedOpen: (open) => set({ unmatchedOpen: open }),
+    setCompleteOpen: (open) => set({ completeOpen: open }),
+
+    addUnmatchedProduct: (name, amount, unit, physicalPage, rawInput, source = "MANUAL") => {
+      const { unmatched, undoStack, activeId } = get();
+      const clean = name.trim();
+      if (!activeId || !clean) return null;
+      const item: UnmatchedProduct = {
+        id: `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+        sessionId: activeId,
+        name: clean,
+        amount,
+        unit: unit.trim(),
+        physicalPage,
+        rawInput,
+        timestamp: Date.now(),
+        resolvedRowId: null,
+      };
+      set({
+        unmatched: [...unmatched, item],
+        undoStack: [...undoStack, { type: "unmatched-add" as const, id: item.id }].slice(-200),
+      });
+      logHistory({
+        action: "UNMATCHED_ADD",
+        physicalPage,
+        newValue: `${item.name} ${amount ?? ""} ${item.unit}`.trim(),
+        source,
+        note: rawInput,
+      });
+      persist();
+      return item.id;
+    },
+
+    updateUnmatchedProduct: (id, patch) => {
+      const { unmatched, undoStack } = get();
+      const item = unmatched.find((u) => u.id === id);
+      if (!item) return;
+      const next = { ...item, ...patch };
+      set({
+        unmatched: unmatched.map((u) => (u.id === id ? next : u)),
+        undoStack: [...undoStack, { type: "unmatched-update" as const, item }].slice(-200),
+      });
+      logHistory({
+        action: "UNMATCHED_UPDATE",
+        physicalPage: next.physicalPage,
+        oldValue: `${item.name} ${item.amount ?? ""} ${item.unit}`.trim(),
+        newValue: `${next.name} ${next.amount ?? ""} ${next.unit}`.trim(),
+      });
+      persist();
+    },
+
+    removeUnmatchedProduct: (id) => {
+      const { unmatched, undoStack } = get();
+      const item = unmatched.find((u) => u.id === id);
+      if (!item) return;
+      set({
+        unmatched: unmatched.filter((u) => u.id !== id),
+        undoStack: [...undoStack, { type: "unmatched-remove" as const, item }].slice(-200),
+      });
+      logHistory({
+        action: "UNMATCHED_DELETE",
+        physicalPage: item.physicalPage,
+        oldValue: item.name,
+      });
+      persist();
+    },
+
+    resolveUnmatchedToRow: (id, rowId) => {
+      const { unmatched, undoStack, edits, parsed, pages } = get();
+      const item = unmatched.find((u) => u.id === id);
+      if (!item || !parsed) return;
+      const columnId = pageColumnId(pages, item.physicalPage);
+      if (!columnId) {
+        set({
+          error: `Sayfa ${item.physicalPage} için sayım kolonu yok. Önce kolon eşleyin.`,
+          mappingOpen: true,
+        });
+        return;
+      }
+      const key = editKey(rowId, columnId);
+      const previous = edits[key];
+      set({
+        unmatched: unmatched.filter((u) => u.id !== id),
+        undoStack: [
+          ...undoStack,
+          { type: "unmatched-resolve" as const, item, rowId, columnId, previous },
+        ].slice(-200),
+        edits: { ...edits, [key]: item.amount },
+      });
+      logHistory({
+        action: "UNMATCHED_RESOLVE",
+        rowId,
+        columnId,
+        physicalPage: item.physicalPage,
+        oldValue: `${item.name} (eşleşmeyen)`,
+        newValue: item.amount,
+        note: `USER corrected: "${item.rawInput || item.name}" -> ${rowId}`,
+      });
+      get().focusCell(rowId, columnId);
       persist();
     },
 
