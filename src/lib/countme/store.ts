@@ -890,18 +890,17 @@ export const useCountMe = create<CountMeState>((set, get) => {
       persist();
     },
 
+    exportDraft: async () => {
+      await runExport(false);
+    },
+
+    completeInventory: async () => {
+      set({ completeOpen: false });
+      await runExport(true);
+    },
+
     exportFile: async () => {
-      const { originalFile, sheetName, parsed, edits, name, fileName, addedColumns } = get();
-      if (!originalFile || !sheetName || !parsed) return;
-      set({ busy: true });
-      try {
-        const out = await exportWithEdits(originalFile, sheetName, parsed, edits, addedColumns);
-        download(out.blob, outName(name ?? fileName ?? "envanter"));
-        set({ busy: false, status: "COMPLETED", error: out.warning });
-        persist(true);
-      } catch (e) {
-        set({ busy: false, error: (e as Error).message });
-      }
+      await runExport(true);
     },
   };
 });
