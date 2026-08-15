@@ -164,7 +164,36 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const canWrite = () => {
     const st = get().state;
-    return st !== "PAUSED_BY_USER" && st !== "PAUSED" && st !== "ERROR" && st !== "WAITING_FOR_USER";
+    if (cme().conflict) return false;
+    return (
+      st !== "PAUSED_BY_USER" &&
+      st !== "PAUSED" &&
+      st !== "ERROR" &&
+      st !== "WAITING_FOR_USER" &&
+      st !== "CANCELLED"
+    );
+  };
+
+  const clearPromptTimer = () => {
+    if (promptTimer) clearTimeout(promptTimer);
+    promptTimer = null;
+  };
+
+  /** Clears every trace of a pending decision so the next utterance is fresh. */
+  const clearPendingContext = () => {
+    clearPromptTimer();
+    set({ prompt: null, interim: "" });
+  };
+
+  const armPromptTimeout = () => {
+    clearPromptTimer();
+    promptTimer = setTimeout(() => {
+      // Decision still open: stop capturing instead of blocking forever.
+      if (get().prompt) {
+        capture?.stop();
+        set({ state: "PAUSED", interim: "" });
+      }
+    }, PROMPT_TIMEOUT);
   };
 
   const groupRows = (index: ProductRow[], key: string) => index.filter((r) => r.groupKey === key);
