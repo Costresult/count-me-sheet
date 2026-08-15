@@ -26,20 +26,40 @@ export interface CorrectionRecord {
   correctedName: string;
   physicalPage: number | null;
   unitContext: string | null;
+  normalizedTranscript?: string | null;
+  aiUnit?: string | null;
+  aiValue?: number | null;
+  correctedValue?: number | null;
+  correctedUnit?: string | null;
+  kind?: "PRODUCT" | "VALUE" | "ROW";
+}
+
+/** Learned "this spoken quantity+unit means this value on this row" evidence. */
+export interface UnitCorrection {
+  id: string;
+  rowId: string;
+  rowLabel: string;
+  spokenUnit: string | null;
+  spokenQuantity: number;
+  correctedValue: number;
+  count: number;
+  lastUsed: number;
 }
 
 const DB_NAME = "countme-learning";
 const ALIASES = "aliases";
 const CORRECTIONS = "corrections";
+const UNITMAP = "unitmap";
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 function db() {
   if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, 1, {
+    dbPromise = openDB(DB_NAME, 2, {
       upgrade(d) {
         if (!d.objectStoreNames.contains(ALIASES)) d.createObjectStore(ALIASES, { keyPath: "id" });
         if (!d.objectStoreNames.contains(CORRECTIONS))
           d.createObjectStore(CORRECTIONS, { keyPath: "id" });
+        if (!d.objectStoreNames.contains(UNITMAP)) d.createObjectStore(UNITMAP, { keyPath: "id" });
       },
     });
   }
