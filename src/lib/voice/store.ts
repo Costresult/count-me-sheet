@@ -759,6 +759,12 @@ export const useVoice = create<VoiceStore>((set, get) => {
 /** Manual grid edits pause the voice engine immediately. */
 if (typeof window !== "undefined") {
   useCountMe.subscribe((state, prev) => {
+    // An occupied-cell decision blocks the queue; resume once it is answered.
+    if (prev.conflict && !state.conflict) {
+      const v = useVoice.getState();
+      if (!v.prompt) v.ingestTranscript("");
+      setTimeout(() => useVoice.getState().resumeQueue(), 0);
+    }
     if (state.status === "PAUSED_BY_USER" && prev.status !== "PAUSED_BY_USER") {
       const v = useVoice.getState();
       if (v.state === "LISTENING" || v.state === "PROCESSING") v.pauseListening(true);
