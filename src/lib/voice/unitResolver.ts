@@ -17,6 +17,21 @@ export interface UnitResolution {
 
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
+export type UnitConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export interface DestinationOption {
+  row: ProductRow;
+  value: number;
+  note: string;
+}
+
+export interface Destination {
+  writes: ResolvedWrite[];
+  confidence: UnitConfidence;
+  options: DestinationOption[];
+  reason: string;
+}
+
 const COUNT_UNITS: UnitCode[] = ["ADET", "SISE", "KOLI", "PAKET", "FICI"];
 
 const rowsWithUnit = (rows: ProductRow[], unit: UnitCode) =>
