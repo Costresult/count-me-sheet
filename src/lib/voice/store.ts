@@ -95,6 +95,15 @@ const queue: string[] = [];
 let draining = false;
 
 export const useVoice = create<VoiceStore>((set, get) => {
+  // deterministic test hook: feed a transcript without a microphone
+  if (typeof window !== "undefined") {
+    (window as unknown as { __countmeVoice?: unknown }).__countmeVoice = {
+      ingest: (t: string) => get().ingestTranscript(t),
+      state: () => get().state,
+      queue: () => get().queueLength,
+    };
+  }
+
   const cme = () => useCountMe.getState();
 
   const pushEntry = (e: Omit<TranscriptEntry, "id" | "timestamp" | "sessionId">) => {
