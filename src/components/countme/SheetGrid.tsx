@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { columnWidth, useCountMe } from "@/lib/countme/store";
 import { editKey, type SheetColumn, type SheetRow } from "@/lib/countme/types";
+import { formatTotal, liveRowTotal, parseNumericInput, totalSourceColumnIds } from "@/lib/countme/calc";
 import { cn } from "@/lib/utils";
 
 const FROZEN_MAX = 2;
@@ -40,16 +41,17 @@ function CellInput({
 
   const commit = () => {
     dirty.current = false;
-    const raw = draft.trim().replace(",", ".");
-    if (raw === "") {
-      if (external !== "") write(rowId, col.id, null);
-      return;
-    }
-    const num = Number(raw);
-    if (Number.isNaN(num)) {
+    const parsed = parseNumericInput(draft);
+    if (parsed === undefined) {
       setDraft(external);
       return;
     }
+    if (parsed === null) {
+      if (external !== "") write(rowId, col.id, null);
+      else setDraft("");
+      return;
+    }
+    const num = parsed;
     if (String(num) !== external) write(rowId, col.id, num);
     else setDraft(String(num));
   };
@@ -91,6 +93,7 @@ export function SheetGrid() {
   const setColumnWidth = useCountMe((s) => s.setColumnWidth);
   const pages = useCountMe((s) => s.pages);
   const activeColumnId = pages.pageColumns[pages.activePage] ?? null;
+  const totalColumnIds = useMemo(() => totalSourceColumnIds(parsed, pages), [parsed, pages]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [maxFrozen, setMaxFrozen] = useState(FROZEN_MAX);
@@ -300,7 +303,11 @@ export function SheetGrid() {
                   const isEditable = col.kind === "count" && !cell?.formula;
                   const edited = edits[editKey(row.id, col.id)];
                   const base =
-                    cell?.value === null || cell?.value === undefined ? "" : String(cell.value);
+                    col.kind === "total"
+                      ? formatTotal(liveRowTotal(row, totalColumnIds, edits))
+                      : cell?.value === null || cell?.value === undefined
+                        ? ""
+                        : String(cell.value);
                   const isTarget = rowFlash && flash?.columnId === col.id;
                   return (
                     <div
