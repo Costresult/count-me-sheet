@@ -148,3 +148,46 @@ export async function listCorrections(): Promise<CorrectionRecord[]> {
     return [];
   }
 }
+
+const unitKey = (rowId: string, spokenUnit: string | null, quantity: number) =>
+  `${rowId}|${spokenUnit ?? "-"}|${quantity}`;
+
+/**
+ * Stores an explicit manual correction of a value the voice engine wrote.
+ * Repeating the same correction raises its count (and therefore its weight).
+ */
+export async function learnUnitCorrection(input: {
+  rowId: string;
+  rowLabel: string;
+  spokenUnit: string | null;
+  spokenQuantity: number;
+  correctedValue: number;
+}): Promise<UnitCorrection> {
+  const d = await db();
+  const id = unitKey(input.rowId, input.spokenUnit, input.spokenQuantity);
+  const existing = (await d.get(UNITMAP, id)) as UnitCorrection | undefined;
+  const rec: UnitCorrection = existing
+    ? { ...existing, correctedValue: input.correctedValue, count: existing.count + 1, lastUsed: Date.now() }
+    : { id, ...input, count: 1, lastUsed: Date.now() };
+  await d.put(UNITMAP, rec);
+  return rec;
+}
+
+export async function listUnitCorrections(): Promise<UnitCorrection[]> {
+  try {
+    return ((await (await db()).getAll(UNITMAP)) as UnitCorrection[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Looks up a previously corrected value for the same row + spoken quantity/unit. */
+export function findUnitCorrection(
+  list: UnitCorrection[],
+  rowId: string,
+  spokenUnit: string | null,
+  quantity: number,
+): UnitCorrection | null {
+  const id = unitKey(rowId, spokenUnit, quantity);
+  return list.find((c) => c.id === id) ?? null;
+}
