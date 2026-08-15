@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   Clock,
+  Power,
 } from "lucide-react";
 import { useCountMe } from "@/lib/countme/store";
 import { statusLabels, type SessionMeta } from "@/lib/countme/types";
@@ -201,6 +202,7 @@ export function SidebarPanel() {
   const sessions = useCountMe((s) => s.sessions);
   const uploadFile = useCountMe((s) => s.uploadFile);
   const setSidebarOpen = useCountMe((s) => s.setSidebarOpen);
+  const exitApplication = useCountMe((s) => s.exitApplication);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const ongoing = sessions.filter((s) => s.status !== "COMPLETED");
@@ -240,6 +242,21 @@ export function SidebarPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto pb-4">
         <Section title="Devam Edenler" icon={Clock} items={ongoing} />
         <Section title="Tamamlananlar" icon={CheckCircle2} items={done} />
+      </div>
+
+      <div className="shrink-0 border-t border-border bg-card p-2">
+        <button
+          type="button"
+          data-testid="exit-app"
+          onClick={() => void exitApplication()}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-secondary/60 px-3 py-2 text-[13px] font-medium text-foreground transition-colors hover:bg-secondary"
+        >
+          <Power className="size-4 text-muted-foreground" />
+          Programdan Çık
+        </button>
+        <p className="mt-1 px-1 text-[11px] text-muted-foreground">
+          Envanterleriniz kaydedilir, hiçbir kayıt silinmez.
+        </p>
       </div>
     </div>
   );
