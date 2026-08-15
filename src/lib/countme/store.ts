@@ -14,12 +14,16 @@ import {
   type AddedColumn,
   editKey,
   emptyPages,
+  type ChangeAction,
+  type ChangeSource,
+  type HistoryEvent,
   type PageState,
   type ParsedSheet,
   type SessionMeta,
   type SessionStatus,
   type SheetColumn,
   type StoredSession,
+  type UnmatchedProduct,
   type ViewPrefs,
 } from "./types";
 
@@ -50,11 +54,18 @@ export interface FocusTarget {
   token: number;
 }
 
-interface UndoEntry {
-  rowId: string;
-  columnId: string;
-  previous: number | null | undefined;
-}
+type UndoEntry =
+  | { type: "cell"; rowId: string; columnId: string; previous: number | null | undefined }
+  | { type: "unmatched-add"; id: string }
+  | { type: "unmatched-remove"; item: UnmatchedProduct }
+  | { type: "unmatched-update"; item: UnmatchedProduct }
+  | {
+      type: "unmatched-resolve";
+      item: UnmatchedProduct;
+      rowId: string;
+      columnId: string;
+      previous: number | null | undefined;
+    };
 
 export type WriteSource = "USER" | "SYSTEM";
 
@@ -93,6 +104,10 @@ interface CountMeState {
   conflict: WriteConflict | null;
   mappingOpen: boolean;
   addedColumns: AddedColumn[];
+  unmatched: UnmatchedProduct[];
+  history: HistoryEvent[];
+  unmatchedOpen: boolean;
+  completeOpen: boolean;
 
   init: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -111,6 +126,24 @@ interface CountMeState {
   writeInventoryValue: (rowId: string, columnId: string, value: number | null) => void;
   clearInventoryValue: (rowId: string, columnId: string) => void;
   undoLast: () => void;
+
+  // unmatched products
+  setUnmatchedOpen: (open: boolean) => void;
+  setCompleteOpen: (open: boolean) => void;
+  addUnmatchedProduct: (
+    name: string,
+    amount: number | null,
+    unit: string,
+    physicalPage: number,
+    rawInput: string,
+    source?: ChangeSource,
+  ) => string | null;
+  updateUnmatchedProduct: (
+    id: string,
+    patch: Partial<Pick<UnmatchedProduct, "name" | "amount" | "unit" | "physicalPage">>,
+  ) => void;
+  removeUnmatchedProduct: (id: string) => void;
+  resolveUnmatchedToRow: (id: string, rowId: string) => void;
 
   // physical page engine
   setActivePage: (page: number) => void;
@@ -139,6 +172,8 @@ interface CountMeState {
   resetView: () => void;
 
   exportFile: () => Promise<void>;
+  exportDraft: () => Promise<void>;
+  completeInventory: () => Promise<void>;
 }
 
 const emptyView = (): ViewPrefs => ({ columnWidths: {}, rowHeight: DEFAULT_ROW_HEIGHT });
@@ -173,6 +208,8 @@ export const useCountMe = create<CountMeState>((set, get) => {
       view: s.view,
       pages: s.pages,
       addedColumns: s.addedColumns,
+      unmatched: s.unmatched,
+      history: s.history,
       createdAt: s.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
@@ -213,6 +250,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
       sheetName,
       parsed,
       addedColumns,
+      unmatched: session.unmatched ?? [],
+      history: session.history ?? [],
+      unmatchedOpen: false,
+      completeOpen: false,
       edits: session.edits ?? {},
       view: session.view ?? emptyView(),
       pages: derivePages(parsed, session.pages),
@@ -250,7 +291,77 @@ export const useCountMe = create<CountMeState>((set, get) => {
       pageFeedback: null,
       mappingOpen: false,
       addedColumns: [],
+      unmatched: [],
+      history: [],
     });
+
+  const pageOfColumn = (columnId: string): number | null => {
+    const { pages } = get();
+    for (let p = 1; p <= pages.pageCount; p++) if (pages.pageColumns[p] === columnId) return p;
+    return null;
+  };
+
+  const logHistory = (e: {
+    action: ChangeAction;
+    rowId?: string | null;
+    columnId?: string | null;
+    physicalPage?: number | null;
+    oldValue?: string | number | null;
+    newValue?: string | number | null;
+    source?: ChangeSource;
+    note?: string;
+  }) => {
+    const { history, activeId } = get();
+    if (!activeId) return;
+    const event: HistoryEvent = {
+      id: `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      sessionId: activeId,
+      timestamp: Date.now(),
+      source: e.source ?? "MANUAL",
+      action: e.action,
+      rowId: e.rowId ?? null,
+      columnId: e.columnId ?? null,
+      physicalPage: e.physicalPage ?? null,
+      oldValue: e.oldValue ?? null,
+      newValue: e.newValue ?? null,
+      ...(e.note ? { note: e.note } : {}),
+    };
+    set({ history: [...history, event].slice(-1000) });
+  };
+
+  /** Builds the xlsx from the working copy. `complete` marks the session COMPLETED. */
+  const runExport = async (complete: boolean) => {
+    const { originalFile, sheetName, parsed, edits, name, fileName, addedColumns, unmatched, pages } =
+      get();
+    if (!originalFile || !sheetName || !parsed) return;
+    set({ busy: true, error: null });
+    try {
+      const rows = unmatched.map((u) => ({
+        name: u.name,
+        unit: u.unit,
+        amount: u.amount,
+        columnId: pageColumnId(pages, u.physicalPage),
+      }));
+      const out = await exportWithEdits(
+        originalFile,
+        sheetName,
+        parsed,
+        edits,
+        addedColumns,
+        rows,
+      );
+      const base = (name ?? fileName ?? "envanter").replace(/\.xls[xm]$/i, "");
+      download(out.blob, complete ? `${base} - Count Me Completed.xlsx` : outName(base));
+      set({
+        busy: false,
+        error: out.warning,
+        ...(complete ? { status: "COMPLETED" as SessionStatus } : {}),
+      });
+      persist(true);
+    } catch (e) {
+      set({ busy: false, error: (e as Error).message });
+    }
+  };
 
   return {
     sessions: [],
@@ -277,6 +388,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
     conflict: null,
     mappingOpen: false,
     addedColumns: [],
+    unmatched: [],
+    history: [],
+    unmatchedOpen: false,
+    completeOpen: false,
 
     refreshSessions: async () => {
       set({ sessions: await listSessions() });
@@ -420,6 +535,12 @@ export const useCountMe = create<CountMeState>((set, get) => {
           parsed,
           session.edits ?? {},
           session.addedColumns ?? [],
+          (session.unmatched ?? []).map((u) => ({
+            name: u.name,
+            unit: u.unit,
+            amount: u.amount,
+            columnId: session.pages ? session.pages.pageColumns[u.physicalPage] ?? null : null,
+          })),
         );
         download(blob.blob, outName(session.name || session.fileName));
         set({ busy: false, error: blob.warning });
@@ -471,10 +592,21 @@ export const useCountMe = create<CountMeState>((set, get) => {
       const col = parsed?.columns.find((c) => c.id === columnId);
       if (!col || col.kind === "total") return;
       const key = editKey(rowId, columnId);
+      const previous = edits[key];
+      const original = parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
+      const oldValue = previous === undefined ? (original as number | string | null) : previous;
       set({
         edits: { ...edits, [key]: value },
-        undoStack: [...undoStack, { rowId, columnId, previous: edits[key] }].slice(-200),
+        undoStack: [...undoStack, { type: "cell" as const, rowId, columnId, previous }].slice(-200),
         ...(status === "RUNNING" ? { status: "PAUSED_BY_USER" as SessionStatus } : {}),
+      });
+      logHistory({
+        action: value === null ? "CELL_CLEAR" : "CELL_WRITE",
+        rowId,
+        columnId,
+        physicalPage: pageOfColumn(columnId),
+        oldValue,
+        newValue: value,
       });
       get().focusCell(rowId, columnId);
       persist();
@@ -600,15 +732,164 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     undoLast: () => {
-      const { undoStack, edits } = get();
+      const { undoStack, edits, unmatched } = get();
       const last = undoStack[undoStack.length - 1];
       if (!last) return;
-      const key = editKey(last.rowId, last.columnId);
-      const next = { ...edits };
-      if (last.previous === undefined) delete next[key];
-      else next[key] = last.previous;
-      set({ edits: next, undoStack: undoStack.slice(0, -1) });
-      get().focusCell(last.rowId, last.columnId);
+      const rest = undoStack.slice(0, -1);
+
+      const restoreCell = (rowId: string, columnId: string, previous: number | null | undefined) => {
+        const next = { ...get().edits };
+        const key = editKey(rowId, columnId);
+        if (previous === undefined) delete next[key];
+        else next[key] = previous;
+        set({ edits: next });
+      };
+
+      if (last.type === "cell") {
+        restoreCell(last.rowId, last.columnId, last.previous);
+        set({ undoStack: rest });
+        logHistory({
+          action: "UNDO",
+          rowId: last.rowId,
+          columnId: last.columnId,
+          physicalPage: pageOfColumn(last.columnId),
+          newValue: last.previous ?? null,
+          note: "cell undo",
+        });
+        get().focusCell(last.rowId, last.columnId);
+      } else if (last.type === "unmatched-add") {
+        set({ unmatched: unmatched.filter((u) => u.id !== last.id), undoStack: rest });
+        logHistory({ action: "UNDO", note: "unmatched add undo" });
+      } else if (last.type === "unmatched-remove" || last.type === "unmatched-update") {
+        set({
+          unmatched: [...unmatched.filter((u) => u.id !== last.item.id), last.item].sort(
+            (a, b) => a.timestamp - b.timestamp,
+          ),
+          undoStack: rest,
+        });
+        logHistory({ action: "UNDO", note: "unmatched restore" });
+      } else {
+        // unmatched -> existing product move
+        restoreCell(last.rowId, last.columnId, last.previous);
+        set({
+          unmatched: [...unmatched.filter((u) => u.id !== last.item.id), last.item].sort(
+            (a, b) => a.timestamp - b.timestamp,
+          ),
+          undoStack: rest,
+        });
+        logHistory({
+          action: "UNDO",
+          rowId: last.rowId,
+          columnId: last.columnId,
+          note: "unmatched resolve undo",
+        });
+      }
+      // edits key removal handled above
+      void edits;
+      persist();
+    },
+
+    // ---------- unmatched products ----------
+
+    setUnmatchedOpen: (open) => set({ unmatchedOpen: open }),
+    setCompleteOpen: (open) => set({ completeOpen: open }),
+
+    addUnmatchedProduct: (name, amount, unit, physicalPage, rawInput, source = "MANUAL") => {
+      const { unmatched, undoStack, activeId } = get();
+      const clean = name.trim();
+      if (!activeId || !clean) return null;
+      const item: UnmatchedProduct = {
+        id: `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+        sessionId: activeId,
+        name: clean,
+        amount,
+        unit: unit.trim(),
+        physicalPage,
+        rawInput,
+        timestamp: Date.now(),
+        resolvedRowId: null,
+      };
+      set({
+        unmatched: [...unmatched, item],
+        undoStack: [...undoStack, { type: "unmatched-add" as const, id: item.id }].slice(-200),
+      });
+      logHistory({
+        action: "UNMATCHED_ADD",
+        physicalPage,
+        newValue: `${item.name} ${amount ?? ""} ${item.unit}`.trim(),
+        source,
+        note: rawInput,
+      });
+      persist();
+      return item.id;
+    },
+
+    updateUnmatchedProduct: (id, patch) => {
+      const { unmatched, undoStack } = get();
+      const item = unmatched.find((u) => u.id === id);
+      if (!item) return;
+      const next = { ...item, ...patch };
+      set({
+        unmatched: unmatched.map((u) => (u.id === id ? next : u)),
+        undoStack: [...undoStack, { type: "unmatched-update" as const, item }].slice(-200),
+      });
+      logHistory({
+        action: "UNMATCHED_UPDATE",
+        physicalPage: next.physicalPage,
+        oldValue: `${item.name} ${item.amount ?? ""} ${item.unit}`.trim(),
+        newValue: `${next.name} ${next.amount ?? ""} ${next.unit}`.trim(),
+      });
+      persist();
+    },
+
+    removeUnmatchedProduct: (id) => {
+      const { unmatched, undoStack } = get();
+      const item = unmatched.find((u) => u.id === id);
+      if (!item) return;
+      set({
+        unmatched: unmatched.filter((u) => u.id !== id),
+        undoStack: [...undoStack, { type: "unmatched-remove" as const, item }].slice(-200),
+      });
+      logHistory({
+        action: "UNMATCHED_DELETE",
+        physicalPage: item.physicalPage,
+        oldValue: item.name,
+      });
+      persist();
+    },
+
+    resolveUnmatchedToRow: (id, rowId) => {
+      const { unmatched, undoStack, edits, parsed, pages } = get();
+      const item = unmatched.find((u) => u.id === id);
+      if (!item || !parsed) return;
+      const columnId = pageColumnId(pages, item.physicalPage);
+      if (!columnId) {
+        set({
+          error: `Sayfa ${item.physicalPage} için sayım kolonu yok. Önce kolon eşleyin.`,
+          mappingOpen: true,
+        });
+        return;
+      }
+      const key = editKey(rowId, columnId);
+      const previous = edits[key];
+      set({
+        unmatched: unmatched.filter((u) => u.id !== id),
+        undoStack: [
+          ...undoStack,
+          { type: "unmatched-resolve" as const, item, rowId, columnId, previous },
+        ].slice(-200),
+        edits: { ...edits, [key]: item.amount },
+      });
+      logHistory({
+        action: "UNMATCHED_RESOLVE",
+        rowId,
+        columnId,
+        physicalPage: item.physicalPage,
+        oldValue: `${item.name} (eşleşmeyen)`,
+        newValue: item.amount,
+        note: `USER corrected: "${item.rawInput || item.name}" -> ${rowId}`,
+      });
+      get().focusCell(rowId, columnId);
       persist();
     },
 
@@ -655,18 +936,17 @@ export const useCountMe = create<CountMeState>((set, get) => {
       persist();
     },
 
+    exportDraft: async () => {
+      await runExport(false);
+    },
+
+    completeInventory: async () => {
+      set({ completeOpen: false });
+      await runExport(true);
+    },
+
     exportFile: async () => {
-      const { originalFile, sheetName, parsed, edits, name, fileName, addedColumns } = get();
-      if (!originalFile || !sheetName || !parsed) return;
-      set({ busy: true });
-      try {
-        const out = await exportWithEdits(originalFile, sheetName, parsed, edits, addedColumns);
-        download(out.blob, outName(name ?? fileName ?? "envanter"));
-        set({ busy: false, status: "COMPLETED", error: out.warning });
-        persist(true);
-      } catch (e) {
-        set({ busy: false, error: (e as Error).message });
-      }
+      await runExport(true);
     },
   };
 });

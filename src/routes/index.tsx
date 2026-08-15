@@ -8,6 +8,8 @@ import { InventorySidebar } from "@/components/countme/InventorySidebar";
 import { PageBar, MobilePageBar } from "@/components/countme/PageBar";
 import { PageMappingDialog } from "@/components/countme/PageMappingDialog";
 import { ConflictDialog } from "@/components/countme/ConflictDialog";
+import { UnmatchedPanel } from "@/components/countme/UnmatchedPanel";
+import { CompleteDialog } from "@/components/countme/CompleteDialog";
 import { useCountMe } from "@/lib/countme/store";
 
 export const Route = createFileRoute("/")({
@@ -59,6 +61,8 @@ function Index() {
       </main>
       <PageMappingDialog />
       <ConflictDialog />
+      <UnmatchedPanel />
+      <CompleteDialog />
     </div>
   );
 }

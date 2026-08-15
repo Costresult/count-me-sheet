@@ -176,6 +176,13 @@ export async function parseWorkbookSheet(buffer: ArrayBuffer, sheetName: string)
   return parseSheet(ws);
 }
 
+export interface UnmatchedExportRow {
+  name: string;
+  unit: string;
+  amount: number | null;
+  columnId: string | null;
+}
+
 /** Applies edits to a fresh copy of the ORIGINAL workbook and returns new xlsx bytes. */
 export async function exportWithEdits(
   originalBuffer: ArrayBuffer,
@@ -183,6 +190,7 @@ export async function exportWithEdits(
   parsed: ParsedSheet,
   edits: Record<string, number | null>,
   added: AddedColumn[] = [],
+  unmatched: UnmatchedExportRow[] = [],
 ): Promise<{ blob: Blob; warning: string | null }> {
   const wb = await loadWorkbook(originalBuffer);
   const ws = wb.getWorksheet(sheetName);
@@ -248,23 +256,49 @@ export async function exportWithEdits(
     }
   }
 
+  const finalCol = (colId: string): number | null => {
+    const col = colById.get(colId);
+    if (!col) return null;
+    if (col.virtual || addedIds.has(colId)) return shift.get(colId) ?? null;
+    if (n > 0 && shift.size > 0 && col.colNumber >= Math.min(...Array.from(shift.values()))) {
+      return col.colNumber + n;
+    }
+    return col.colNumber;
+  };
+
   for (const [key, value] of Object.entries(edits)) {
     const [rowId = "", colId = ""] = key.split("|");
     const row = rowById.get(rowId);
     const col = colById.get(colId);
     if (!row || !col || col.kind === "total") continue;
-    let colNumber = col.colNumber;
-    if (col.virtual || addedIds.has(colId)) {
-      const target = shift.get(colId);
-      if (!target) continue;
-      colNumber = target;
-    } else if (n > 0 && col.colNumber >= Math.min(...Array.from(shift.values()))) {
-      colNumber = col.colNumber + n;
-    }
+    const colNumber = finalCol(colId);
+    if (!colNumber) continue;
     const cell = ws.getRow(row.rowNumber).getCell(colNumber);
     // never overwrite a formula
     if (cell.value && typeof cell.value === "object" && "formula" in cell.value) continue;
     cell.value = value === null ? null : value;
+  }
+
+  // ---- unmatched products, appended after the original list ----
+  if (unmatched.length > 0) {
+    const identity = parsed.columns.filter((c) => c.kind === "identity");
+    const nameCol = finalCol(identity[0]?.id ?? parsed.columns[0]!.id) ?? 1;
+    const unitCol = identity[1] ? finalCol(identity[1].id) ?? nameCol + 1 : nameCol + 1;
+    const lastRow = parsed.rows.reduce((m, r) => Math.max(m, r.rowNumber), parsed.headerRowNumber);
+    let r = lastRow + 2; // keep one blank row after the original inventory
+    const head = ws.getRow(r);
+    head.getCell(nameCol).value = "EŞLEŞMEYEN / LİSTEDE BULUNAMAYAN ÜRÜNLER";
+    head.getCell(nameCol).font = { bold: true };
+    head.commit?.();
+    for (const item of unmatched) {
+      r += 1;
+      const row = ws.getRow(r);
+      row.getCell(nameCol).value = item.name;
+      if (item.unit) row.getCell(unitCol).value = item.unit;
+      const target = item.columnId ? finalCol(item.columnId) : null;
+      if (target && item.amount !== null) row.getCell(target).value = item.amount;
+      row.commit?.();
+    }
   }
 
   const out = await wb.xlsx.writeBuffer();

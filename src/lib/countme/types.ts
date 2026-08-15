@@ -20,6 +20,45 @@ export interface AddedColumn {
   header: string;
 }
 
+export type ChangeSource = "MANUAL" | "SYSTEM" | "VOICE_AI";
+
+export type ChangeAction =
+  | "CELL_WRITE"
+  | "CELL_CLEAR"
+  | "UNMATCHED_ADD"
+  | "UNMATCHED_UPDATE"
+  | "UNMATCHED_DELETE"
+  | "UNMATCHED_RESOLVE"
+  | "COLUMN_ADD"
+  | "UNDO";
+
+export interface HistoryEvent {
+  id: string;
+  sessionId: string;
+  timestamp: number;
+  source: ChangeSource;
+  action: ChangeAction;
+  rowId: string | null;
+  columnId: string | null;
+  physicalPage: number | null;
+  oldValue: string | number | null;
+  newValue: string | number | null;
+  note?: string;
+}
+
+/** A product that was spoken/entered but not found in the sheet. Never silently dropped. */
+export interface UnmatchedProduct {
+  id: string;
+  sessionId: string;
+  name: string;
+  amount: number | null;
+  unit: string;
+  physicalPage: number;
+  rawInput: string;
+  timestamp: number;
+  resolvedRowId?: string | null;
+}
+
 export interface SheetCell {
   value: CellValue;
   formula?: string | undefined;
@@ -81,6 +120,8 @@ export interface StoredSession {
   view: ViewPrefs;
   pages?: PageState;
   addedColumns?: AddedColumn[];
+  unmatched?: UnmatchedProduct[];
+  history?: HistoryEvent[];
   createdAt: number;
   updatedAt: number;
 }
