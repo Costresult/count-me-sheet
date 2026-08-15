@@ -218,66 +218,83 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const index = buildProductIndex(parsed);
     const match = matchProduct(index, u.productText, get().aliases);
 
-    if (!match.best || match.confidence === "LOW") {
-      toUnmatched(u, `düşük eşleşme (${match.best ? match.best.row.name : "yok"})`);
+    if (!match.best) {
+      toUnmatched(u, "eşleşme bulunamadı");
       return;
     }
 
-    if (match.confidence === "MEDIUM") {
-      const groups = candidateGroups(match.candidates).slice(0, 5);
-      set({
-        prompt: {
-          utterance: u,
-          confidence: match.confidence,
-          options: groups.map((g) => ({
-            rowId: g.row.rowId,
-            label: optionLabel(g.row),
-            score: g.score,
-          })),
-          aiBestRowId: match.best.row.rowId,
-          kind: "product",
-        },
-      });
-      pushEntry({
-        rawTranscript: raw,
-        normalizedTranscript: u.normalizedTranscript,
-        physicalPage: cme().pages.activePage,
-        outcome: "candidates",
-        detail: "ürün seçimi bekleniyor",
-      });
+    const productConfidence = match.confidence;
+    const bestRows = groupRows(index, match.best.row.groupKey);
+    const destination = resolveDestination(bestRows, u);
+
+    // STRICT GATE: product HIGH *and* unit/package HIGH – otherwise ask.
+    if (
+      productConfidence === "HIGH" &&
+      destination.confidence === "HIGH" &&
+      destination.writes.length > 0
+    ) {
+      applyWrites(destination.writes, u, index);
       return;
     }
 
-    const rows = groupRows(index, match.best.row.groupKey);
-    const resolution = resolveUnitDestination(rows, u);
-    if (resolution.writes.length > 0) {
-      applyWrites(resolution.writes, u, index);
+    const options: CandidateOption[] = [];
+    const seen = new Set<string>();
+    const push = (row: ProductRow, value: number, note: string, score: number) => {
+      if (seen.has(row.rowId)) return;
+      seen.add(row.rowId);
+      options.push({ rowId: row.rowId, label: optionLabel(row), score, value, note });
+    };
+
+    if (productConfidence === "HIGH") {
+      for (const o of destination.options) push(o.row, o.value, o.note, match.best.score);
+      if (options.length === 0) for (const r of bestRows) push(r, u.terms[0]?.quantity ?? 0, r.unitText, match.best.score);
+    } else {
+      for (const c of candidateGroups(match.candidates).slice(0, 4)) {
+        const rows = groupRows(index, c.row.groupKey);
+        const d = resolveDestination(rows, u);
+        if (d.writes.length > 0) {
+          const w = d.writes[0]!;
+          const row = index.find((r) => r.rowId === w.rowId) ?? c.row;
+          push(row, w.value, w.note, c.score);
+        } else if (d.options.length > 0) {
+          for (const o of d.options.slice(0, 2)) push(o.row, o.value, o.note, c.score);
+        } else {
+          push(c.row, u.terms[0]?.quantity ?? 0, c.row.unitText, c.score);
+        }
+      }
+    }
+
+    if (options.length === 0) {
+      toUnmatched(u, "hedef satır bulunamadı");
       return;
     }
-    if (resolution.ambiguousRows && resolution.ambiguousRows.length > 0) {
-      set({
-        prompt: {
-          utterance: u,
-          confidence: match.confidence,
-          options: resolution.ambiguousRows.slice(0, 5).map((r) => ({
-            rowId: r.rowId,
-            label: optionLabel(r),
-            score: 0,
-          })),
-          aiBestRowId: match.best.row.rowId,
-          kind: "unit",
-        },
-      });
-      pushEntry({
-        rawTranscript: raw,
-        normalizedTranscript: u.normalizedTranscript,
-        physicalPage: cme().pages.activePage,
-        outcome: "candidates",
-        detail: "birim seçimi bekleniyor",
-      });
-      return;
-    }
-    toUnmatched(u, resolution.reason);
+
+    // Focus the first candidate so the user can inspect the Excel row.
+    cme().focusProductRow(options[0]!.rowId);
+
+    set({
+      state: "WAITING_FOR_USER",
+      prompt: {
+        utterance: u,
+        confidence: productConfidence,
+        productConfidence,
+        unitConfidence: destination.confidence,
+        productScore: match.best.score,
+        productLabel: productConfidence === "HIGH" ? match.best.row.name : null,
+        question:
+          productConfidence === "HIGH" ? "Nereye yazayım?" : "Hangi ürün ve satır?",
+        options,
+        aiBestRowId: match.best.row.rowId,
+        kind: productConfidence === "HIGH" ? "unit" : "product",
+      },
+    });
+    pushEntry({
+      rawTranscript: raw,
+      normalizedTranscript: u.normalizedTranscript,
+      physicalPage: cme().pages.activePage,
+      outcome: "candidates",
+      detail: productConfidence === "HIGH" ? "birim seçimi bekleniyor" : "ürün seçimi bekleniyor",
+    });
   };
 
   const drain = async () => {
