@@ -137,7 +137,7 @@ function Item({ meta }: { meta: SessionMeta }) {
               Yeniden Adlandır
             </DropdownMenuItem>
             <DropdownMenuItem
-              variant="destructive"
+              className="text-destructive focus:text-destructive"
               onSelect={(e) => {
                 e.preventDefault();
                 setConfirming(true);
