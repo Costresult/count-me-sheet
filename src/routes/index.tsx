@@ -5,6 +5,9 @@ import { SheetGrid } from "@/components/countme/SheetGrid";
 import { EmptyState } from "@/components/countme/EmptyState";
 import { FocusDemoBar } from "@/components/countme/FocusDemoBar";
 import { InventorySidebar } from "@/components/countme/InventorySidebar";
+import { PageBar, MobilePageBar } from "@/components/countme/PageBar";
+import { PageMappingDialog } from "@/components/countme/PageMappingDialog";
+import { ConflictDialog } from "@/components/countme/ConflictDialog";
 import { useCountMe } from "@/lib/countme/store";
 
 export const Route = createFileRoute("/")({
@@ -36,14 +39,26 @@ function Index() {
     void init();
   }, [init]);
 
+  // test/automation hook for the physical page engine (also used by future voice AI)
+  useEffect(() => {
+    (window as unknown as { countme?: unknown }).countme = useCountMe;
+    return () => {
+      delete (window as unknown as { countme?: unknown }).countme;
+    };
+  }, []);
+
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       <InventorySidebar />
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Toolbar />
+        {parsed && <PageBar />}
         <div className="min-h-0 flex-1">{parsed ? <SheetGrid /> : <EmptyState />}</div>
         {parsed && <FocusDemoBar />}
+        {parsed && <MobilePageBar />}
       </main>
+      <PageMappingDialog />
+      <ConflictDialog />
     </div>
   );
 }
