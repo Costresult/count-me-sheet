@@ -442,28 +442,32 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     chooseCandidate: async (index) => {
       const prompt = get().prompt;
+      const option = prompt?.options[index];
+      if (!prompt || !option) return;
+      await commitChoice(prompt, option.rowId, option.value);
+    },
+
+    chooseRow: async (rowId) => {
+      const prompt = get().prompt;
       if (!prompt) return;
-      const option = prompt.options[index];
-      if (!option) return;
-      set({ prompt: null });
       const parsed = cme().parsed;
       if (!parsed) return;
       const catalogue = buildProductIndex(parsed);
-      const row = catalogue.find((r) => r.rowId === option.rowId);
+      const row = catalogue.find((r) => r.rowId === rowId);
       if (!row) return;
+      const d = resolveDestination([row], prompt.utterance);
+      const value = d.writes[0]?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
+      await commitChoice(prompt, rowId, value);
+    },
 
-      cme().focusProductRow(row.rowId);
-
-      const u = prompt.utterance;
-      const rows = prompt.kind === "unit" ? [row] : groupRows(catalogue, row.groupKey);
-      const resolution = resolveUnitDestination(rows, u);
-      const writes =
-        resolution.writes.length > 0
-          ? resolution.writes
-          : u.terms[0]
-            ? [{ rowId: row.rowId, value: u.terms[0].quantity, note: "seçim" }]
-            : [];
-      if (writes.length > 0) applyWrites(writes, u, catalogue);
+    dismissPrompt: (unmatched = true) => {
+      const prompt = get().prompt;
+      set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
+      if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
+      void drain();
+    },
+  };
+});
 
       await learnAlias({
         spokenAlias: u.productText,
