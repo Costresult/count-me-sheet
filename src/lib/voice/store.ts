@@ -4,7 +4,7 @@ import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
 import { candidateGroups, matchProduct, type MatchConfidence } from "./matcher";
-import { resolveDestination, type UnitConfidence } from "./unitResolver";
+import { normalizeForTargetUnit, resolveDestination, type UnitConfidence } from "./unitResolver";
 import {
   learnAlias,
   listAliases,
@@ -199,6 +199,32 @@ export const useVoice = create<VoiceStore>((set, get) => {
   };
 
   const groupRows = (index: ProductRow[], key: string) => index.filter((r) => r.groupKey === key);
+
+  /**
+   * MANDATORY final normalization gate for every VOICE_AI value.
+   * Never trusts a value produced by an earlier stage: when the utterance has a
+   * single spoken term with a unit, the number is recomputed from
+   * (quantity, spokenUnit, targetRowUnit) right before the cell write.
+   */
+  const finalizeValue = (rowId: string, u: ParsedUtterance, proposed: number, index: ProductRow[]) => {
+    const row = index.find((r) => r.rowId === rowId);
+    const term = u.terms.length === 1 && u.operation === "single" ? u.terms[0]! : null;
+    if (!row || !term || !term.unit) return proposed;
+    const n = normalizeForTargetUnit(term.quantity, term.unit, row.unitInfo);
+    if (typeof window !== "undefined") {
+      console.debug("[countme:write]", {
+        rawTranscript: u.rawTranscript,
+        parsedQuantity: term.quantity,
+        parsedUnit: term.unit,
+        targetRow: row.label,
+        targetUnit: row.unitInfo.unit,
+        proposedValue: proposed,
+        normalizedValue: n.value,
+        note: n.note,
+      });
+    }
+    return n.value;
+  };
 
   const optionLabel = (row: ProductRow) => row.label;
 
