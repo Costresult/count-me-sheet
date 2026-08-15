@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useCountMe } from "@/lib/countme/store";
@@ -7,6 +7,7 @@ import { Trash2 } from "lucide-react";
 import { buildProductIndex } from "@/lib/voice/productIndex";
 import { learnAlias, recordCorrection } from "@/lib/voice/aliases";
 import { useVoice } from "@/lib/voice/store";
+import { StockSearch } from "./StockSearch";
 
 const input =
   "h-9 min-w-0 rounded-md border border-border bg-background px-2 text-[13px] text-foreground";
@@ -55,15 +56,7 @@ export function UnmatchedPanel() {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [unit, setUnit] = useState("");
-
-  const rowOptions = useMemo(() => {
-    if (!parsed) return [];
-    const idCol = parsed.columns.find((c) => c.kind === "identity");
-    return parsed.rows.slice(0, 4000).map((r) => ({
-      id: r.id,
-      label: `${r.rowNumber} · ${String((idCol && r.cells[idCol.id]?.value) ?? "")}`,
-    }));
-  }, [parsed]);
+  const [searchFor, setSearchFor] = useState<string | null>(null);
 
   const submit = () => {
     const value = parseNumericInput(amount);
@@ -153,26 +146,27 @@ export function UnmatchedPanel() {
                 </span>
                 <span className="truncate">girdi: “{u.rawInput}”</span>
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <select
-                  data-testid={`resolve-select-${u.id}`}
-                  defaultValue=""
-                  className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[13px]"
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      const rowId = e.target.value;
+              <div className="mt-2">
+                {searchFor === u.id ? (
+                  <StockSearch
+                    autoFocus
+                    testid={`resolve-search-${u.id}`}
+                    onSelect={(rowId) => {
                       void learnFromManualMatch(u.rawInput || u.name, rowId, u.physicalPage);
                       resolve(u.id, rowId);
-                    }
-                  }}
-                >
-                  <option value="">Mevcut ürünle eşleştir…</option>
-                  {rowOptions.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
+                      setSearchFor(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    data-testid={`resolve-open-${u.id}`}
+                    onClick={() => setSearchFor(u.id)}
+                    className="h-9 w-full rounded-md border border-border bg-secondary px-2 text-[13px] font-medium text-secondary-foreground hover:bg-accent"
+                  >
+                    Mevcut ürünle eşleştir…
+                  </button>
+                )}
               </div>
             </div>
           ))}
