@@ -341,6 +341,46 @@ export const useVoice = create<VoiceStore>((set, get) => {
     return capture;
   };
 
+  /** Applies an explicit user decision: write, focus, learn, resume queue. */
+  const commitChoice = async (prompt: CandidatePrompt, rowId: string, value: number) => {
+    set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
+    const parsed = cme().parsed;
+    if (!parsed) return;
+    const catalogue = buildProductIndex(parsed);
+    const row = catalogue.find((r) => r.rowId === rowId);
+    if (!row) return;
+    const u = prompt.utterance;
+
+    cme().focusProductRow(row.rowId);
+    applyWrites([{ rowId: row.rowId, value, note: "kullanıcı seçimi" }], u, catalogue);
+
+    // product alias is learned; the unit/package choice stays context-specific
+    if (u.productText) {
+      await learnAlias({
+        spokenAlias: u.productText,
+        targetProductIdentity: row.groupKey,
+        targetProductName: row.name,
+        targetUnit: null,
+        source:
+          prompt.aiBestRowId && prompt.aiBestRowId !== row.rowId
+            ? "USER_CORRECTION"
+            : "USER_SELECTION",
+      });
+      await recordCorrection({
+        sessionId: cme().activeId,
+        rawTranscript: u.rawTranscript,
+        aiCandidate: prompt.options[0]?.label ?? null,
+        aiRowId: prompt.aiBestRowId,
+        correctedRowId: row.rowId,
+        correctedName: row.label,
+        physicalPage: cme().pages.activePage,
+        unitContext: u.normalizedUnit ?? null,
+      });
+      await get().refreshAliases();
+    }
+    void drain();
+  };
+
   return {
     supported: typeof window !== "undefined" ? speechSupported() : false,
     mode: "continuous",
@@ -463,38 +503,6 @@ export const useVoice = create<VoiceStore>((set, get) => {
     dismissPrompt: (unmatched = true) => {
       const prompt = get().prompt;
       set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
-      if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
-      void drain();
-    },
-  };
-});
-
-      await learnAlias({
-        spokenAlias: u.productText,
-        targetProductIdentity: row.groupKey,
-        targetProductName: row.name,
-        targetUnit: row.unitText || null,
-        source: prompt.aiBestRowId && prompt.aiBestRowId !== row.rowId
-          ? "USER_CORRECTION"
-          : "USER_SELECTION",
-      });
-      await recordCorrection({
-        sessionId: cme().activeId,
-        rawTranscript: u.rawTranscript,
-        aiCandidate: prompt.options[0]?.label ?? null,
-        aiRowId: prompt.aiBestRowId,
-        correctedRowId: row.rowId,
-        correctedName: row.label,
-        physicalPage: cme().pages.activePage,
-        unitContext: u.normalizedUnit ?? null,
-      });
-      await get().refreshAliases();
-      void drain();
-    },
-
-    dismissPrompt: (unmatched = true) => {
-      const prompt = get().prompt;
-      set({ prompt: null });
       if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
       void drain();
     },
