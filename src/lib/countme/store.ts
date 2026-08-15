@@ -285,7 +285,43 @@ export const useCountMe = create<CountMeState>((set, get) => {
       pageFeedback: null,
       mappingOpen: false,
       addedColumns: [],
+      unmatched: [],
+      history: [],
     });
+
+  const pageOfColumn = (columnId: string): number | null => {
+    const { pages } = get();
+    for (let p = 1; p <= pages.pageCount; p++) if (pages.pageColumns[p] === columnId) return p;
+    return null;
+  };
+
+  const logHistory = (e: {
+    action: ChangeAction;
+    rowId?: string | null;
+    columnId?: string | null;
+    physicalPage?: number | null;
+    oldValue?: string | number | null;
+    newValue?: string | number | null;
+    source?: ChangeSource;
+    note?: string;
+  }) => {
+    const { history, activeId } = get();
+    if (!activeId) return;
+    const event: HistoryEvent = {
+      id: `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      sessionId: activeId,
+      timestamp: Date.now(),
+      source: e.source ?? "MANUAL",
+      action: e.action,
+      rowId: e.rowId ?? null,
+      columnId: e.columnId ?? null,
+      physicalPage: e.physicalPage ?? null,
+      oldValue: e.oldValue ?? null,
+      newValue: e.newValue ?? null,
+      ...(e.note ? { note: e.note } : {}),
+    };
+    set({ history: [...history, event].slice(-1000) });
+  };
 
   return {
     sessions: [],
