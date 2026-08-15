@@ -14,7 +14,6 @@ import {
   Menu,
   LogOut,
   Download,
-  ListPlus,
 } from "lucide-react";
 
 const statusLabel: Record<string, string> = {
@@ -111,11 +110,6 @@ export function Toolbar() {
               <TBtn onClick={() => s.setStatus("PAUSED")} icon={Pause} label="Duraklat" />
             )}
             <TBtn onClick={s.undoLast} icon={Undo2} label="Geri Al" disabled={s.undoStack.length === 0} />
-            <TBtn
-              onClick={() => s.setUnmatchedOpen(true)}
-              icon={ListPlus}
-              label={`Eşleşmeyen Ürünler${s.unmatched.length ? ` (${s.unmatched.length})` : ""}`}
-            />
             <TBtn
               onClick={() => void s.exportDraft()}
               icon={Download}
