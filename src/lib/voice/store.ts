@@ -693,15 +693,35 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     dismissPrompt: (unmatched = true) => {
       const prompt = get().prompt;
-      set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
+      clearPendingContext();
+      set({ state: capture ? "LISTENING" : "IDLE" });
       if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
+      void drain();
+    },
+
+    skipPrompt: () => {
+      const prompt = get().prompt;
+      if (!prompt) return;
+      clearPendingContext();
+      set({ state: capture ? "LISTENING" : "IDLE" });
+      pushEntry({
+        rawTranscript: prompt.utterance.rawTranscript,
+        normalizedTranscript: prompt.utterance.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "skipped",
+        detail: "atlandı",
+      });
       void drain();
     },
 
     cancelPrompt: () => {
       const prompt = get().prompt;
       if (!prompt) return;
-      set({ prompt: null, state: "PAUSED", interim: "" });
+      // Cancel clears every pending decision *and* any queued stale speech, so a
+      // later utterance can never inherit this context.
+      queue.length = 0;
+      clearPendingContext();
+      set({ state: "CANCELLED", queueLength: 0 });
       pushEntry({
         rawTranscript: prompt.utterance.rawTranscript,
         normalizedTranscript: prompt.utterance.normalizedTranscript,
@@ -709,6 +729,29 @@ export const useVoice = create<VoiceStore>((set, get) => {
         outcome: "ignored",
         detail: "kullanıcı iptal etti",
       });
+      setTimeout(() => {
+        if (get().state === "CANCELLED") set({ state: capture ? "LISTENING" : "PAUSED" });
+      }, 600);
+    },
+
+    toggleListening: () => {
+      const st = get().state;
+      if (st === "LISTENING" || st === "PROCESSING") {
+        get().pauseListening(false);
+        return;
+      }
+      if (st === "PAUSED" || st === "PAUSED_BY_USER" || st === "WAITING_FOR_USER" || st === "CANCELLED") {
+        // never resolves an open decision: only capture restarts
+        if (get().prompt) {
+          set({ error: null });
+          if (capture) capture.start(get().mode === "continuous");
+          else void get().startListening();
+          return;
+        }
+        get().resumeListening();
+        return;
+      }
+      void get().startListening();
     },
   };
 });
