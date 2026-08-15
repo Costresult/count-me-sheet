@@ -1,4 +1,4 @@
-import type { CellValue, ParsedSheet, SheetCell, SheetColumn, SheetRow } from "./types";
+import type { AddedColumn, CellValue, ParsedSheet, SheetCell, SheetColumn, SheetRow } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyWorkbook = any;
@@ -24,7 +24,7 @@ export async function readSheetNames(buffer: ArrayBuffer): Promise<string[]> {
   return wb.worksheets.map((ws: any) => ws.name as string);
 }
 
-const colLetter = (n: number) => {
+export const colLetter = (n: number) => {
   let s = "";
   let x = n;
   while (x > 0) {
@@ -182,26 +182,125 @@ export async function exportWithEdits(
   sheetName: string,
   parsed: ParsedSheet,
   edits: Record<string, number | null>,
-): Promise<Blob> {
+  added: AddedColumn[] = [],
+): Promise<{ blob: Blob; warning: string | null }> {
   const wb = await loadWorkbook(originalBuffer);
   const ws = wb.getWorksheet(sheetName);
   if (!ws) throw new Error("Çalışma sayfası bulunamadı");
   const colById = new Map(parsed.columns.map((c) => [c.id, c]));
   const rowById = new Map(parsed.rows.map((r) => [r.id, r]));
+  let warning: string | null = null;
+
+  // ---- materialize user-added count columns ----
+  const addedIds = new Set(added.map((a) => a.id));
+  const realColumns = parsed.columns.filter((c) => !c.virtual);
+  const totals = realColumns.filter((c) => c.kind === "total");
+  const lastCount = realColumns.filter((c) => c.kind === "count").pop();
+  const maxCol = realColumns.reduce((m, c) => Math.max(m, c.colNumber), 1);
+  const n = added.length;
+  /** original column number where new columns get inserted */
+  const shift = new Map<string, number>();
+
+  if (n > 0) {
+    const firstTotal = totals[0];
+    const insertAt = firstTotal ? firstTotal.colNumber : maxCol + 1;
+
+    // total formulas must be simple contiguous SUM() to stay correct after inserting
+    const sumRe = /^SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$/i;
+    let safe = true;
+    if (firstTotal) {
+      for (const row of parsed.rows) {
+        for (const t of totals) {
+          const f = row.cells[t.id]?.formula;
+          if (f && f !== "shared" && !sumRe.test(f.replace(/\s|\$/g, ""))) safe = false;
+        }
+      }
+    }
+
+    if (firstTotal && !safe) {
+      warning =
+        "TOPLAM formülleri otomatik güncellenemedi. Yeni sayım kolonları tablonun sonuna eklendi; TOPLAM'a dahil değildir.";
+    }
+
+    const insertIndex = firstTotal && safe ? insertAt : maxCol + 1;
+    ws.spliceColumns(insertIndex, 0, ...added.map(() => [] as unknown[]));
+    added.forEach((a, i) => shift.set(a.id, insertIndex + i));
+
+    const headerRow = ws.getRow(parsed.headerRowNumber);
+    added.forEach((a) => {
+      headerRow.getCell(shift.get(a.id)!).value = a.header;
+    });
+    headerRow.commit?.();
+
+    if (firstTotal && safe && lastCount) {
+      // widen every simple SUM range that ended at the last count column
+      const newEnd = colLetter(lastCount.colNumber + n);
+      for (const row of parsed.rows) {
+        for (const t of totals) {
+          const f = row.cells[t.id]?.formula;
+          if (!f || f === "shared") continue;
+          const m = sumRe.exec(f.replace(/\s|\$/g, ""));
+          if (!m) continue;
+          const cell = ws.getRow(row.rowNumber).getCell(t.colNumber + n);
+          cell.value = { formula: `SUM(${m[1]}${m[2]}:${newEnd}${m[4]})` };
+        }
+      }
+    }
+  }
 
   for (const [key, value] of Object.entries(edits)) {
     const [rowId = "", colId = ""] = key.split("|");
     const row = rowById.get(rowId);
     const col = colById.get(colId);
     if (!row || !col || col.kind === "total") continue;
-    const cell = ws.getRow(row.rowNumber).getCell(col.colNumber);
+    let colNumber = col.colNumber;
+    if (col.virtual || addedIds.has(colId)) {
+      const target = shift.get(colId);
+      if (!target) continue;
+      colNumber = target;
+    } else if (n > 0 && col.colNumber >= Math.min(...Array.from(shift.values()))) {
+      colNumber = col.colNumber + n;
+    }
+    const cell = ws.getRow(row.rowNumber).getCell(colNumber);
     // never overwrite a formula
     if (cell.value && typeof cell.value === "object" && "formula" in cell.value) continue;
     cell.value = value === null ? null : value;
   }
 
   const out = await wb.xlsx.writeBuffer();
-  return new Blob([out], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+  return {
+    blob: new Blob([out], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+    warning,
+  };
+}
+
+/** Returns a parsed sheet extended with the user's added (virtual) count columns. */
+export function withAddedColumns(parsed: ParsedSheet | null, added: AddedColumn[]): ParsedSheet | null {
+  if (!parsed || added.length === 0) return parsed;
+  const existing = new Set(parsed.columns.map((c) => c.id));
+  const extras: SheetColumn[] = added
+    .filter((a) => !existing.has(a.id))
+    .map((a, i) => ({
+      id: a.id,
+      colNumber: 10000 + i,
+      letter: "YENİ",
+      header: a.header,
+      kind: "count" as const,
+      hidden: false,
+      defaultWidth: 84,
+      virtual: true,
+    }));
+  if (extras.length === 0) return parsed;
+  const firstTotalIdx = parsed.columns.findIndex((c) => c.kind === "total");
+  const columns =
+    firstTotalIdx === -1
+      ? [...parsed.columns, ...extras]
+      : [
+          ...parsed.columns.slice(0, firstTotalIdx),
+          ...extras,
+          ...parsed.columns.slice(firstTotalIdx),
+        ];
+  return { ...parsed, columns };
 }
