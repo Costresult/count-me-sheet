@@ -12,6 +12,8 @@ export function EmptyState() {
   const busy = useCountMe((s) => s.busy);
   const error = useCountMe((s) => s.error);
   const parsed = useCountMe((s) => s.parsed);
+  const sessions = useCountMe((s) => s.sessions);
+  const openSession = useCountMe((s) => s.openSession);
   const fileRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<DropState>("idle");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -130,6 +132,29 @@ export function EmptyState() {
         </p>
       )}
       <p className="text-xs text-muted-foreground">Orijinal dosyanız hiçbir zaman değiştirilmez.</p>
+
+      {sessions.length > 0 && (
+        <div className="w-full max-w-lg md:hidden">
+          <p className="mb-1 text-left text-[11px] font-semibold uppercase text-muted-foreground">
+            Kayıtlı envanterler
+          </p>
+          <div className="flex flex-col gap-1">
+            {sessions.slice(0, 6).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => void openSession(m.id)}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-left text-[13px] hover:bg-secondary"
+              >
+                <span className="truncate font-medium text-foreground">{m.name}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {m.status === "COMPLETED" ? "Tamamlandı" : "Devam Ediyor"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
