@@ -4,7 +4,7 @@ import { detectRowUnit } from "../src/lib/voice/units";
 
 const row = (id: string, name: string, unitText: string) => ({
   rowId: id, name, label: `${name} ${unitText}`, unitText, groupKey: "g",
-  unitInfo: detectRowUnit(unitText, name),
+  unitInfo: detectRowUnit(unitText.toLowerCase(), name.toLowerCase()),
 } as any);
 
 const litre = row("r1", "PRODUCT X", "LITRE");
