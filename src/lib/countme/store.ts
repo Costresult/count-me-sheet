@@ -276,6 +276,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
     pageFeedback: null,
     conflict: null,
     mappingOpen: false,
+    addedColumns: [],
 
     refreshSessions: async () => {
       set({ sessions: await listSessions() });
@@ -418,9 +419,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
           session.sheetName,
           parsed,
           session.edits ?? {},
+          session.addedColumns ?? [],
         );
-        download(blob, outName(session.name || session.fileName));
-        set({ busy: false });
+        download(blob.blob, outName(session.name || session.fileName));
+        set({ busy: false, error: blob.warning });
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
       }
@@ -442,6 +444,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
           view: emptyView(),
           pages: derivePages(parsed),
           conflict: null,
+          addedColumns: [],
         });
         persist(true);
       } catch (e) {
@@ -489,9 +492,16 @@ export const useCountMe = create<CountMeState>((set, get) => {
 
     setActivePage: (page) => {
       const { pages } = get();
-      const next = Math.min(Math.max(1, Math.round(page)), pages.pageCount);
+      const next = Math.min(Math.max(1, Math.round(page)), MAX_PAGES);
       if (next === pages.activePage) return;
-      set({ pages: { ...pages, activePage: next }, pageFeedback: `Sayfa ${next} aktif` });
+      // pages are dynamic: moving forward grows the page count when needed
+      const pageCount = Math.max(pages.pageCount, next);
+      const pageColumns = { ...pages.pageColumns };
+      for (let p = 1; p <= pageCount; p++) if (!(p in pageColumns)) pageColumns[p] = null;
+      set({
+        pages: { ...pages, activePage: next, pageCount, pageColumns },
+        pageFeedback: pageColumns[next] ? `Sayfa ${next} aktif` : null,
+      });
       if (feedbackTimer) clearTimeout(feedbackTimer);
       feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 1600);
       persist();
@@ -523,6 +533,29 @@ export const useCountMe = create<CountMeState>((set, get) => {
       pageColumns[page] = columnId;
       set({ pages: { ...pages, pageColumns } });
       persist();
+    },
+
+    addCountColumn: (page) => {
+      const { parsed, addedColumns, pages } = get();
+      if (!parsed) return null;
+      const existingNums = parsed.columns
+        .filter((c) => c.kind === "count")
+        .map((c) => {
+          const m = /(\d+)\s*$/.exec(c.header);
+          return m ? Number(m[1]) : 0;
+        });
+      const nextNum = Math.max(0, ...existingNums, parsed.columns.filter((c) => c.kind === "count").length) + 1;
+      const added: AddedColumn = { id: `v${Date.now().toString(36)}`, header: `Sayım ${nextNum}` };
+      const nextAdded = [...addedColumns, added];
+      const nextParsed = withAddedColumns(parsed, [added]);
+      set({ addedColumns: nextAdded, parsed: nextParsed });
+      const target = page ?? pages.activePage;
+      get().setPageColumn(target, added.id);
+      set({ pageFeedback: `${added.header} kolonu oluşturuldu` });
+      if (feedbackTimer) clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 2000);
+      persist();
+      return added.id;
     },
 
     writePageValue: (rowId, page, value, source = "USER") => {
@@ -623,13 +656,13 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     exportFile: async () => {
-      const { originalFile, sheetName, parsed, edits, name, fileName } = get();
+      const { originalFile, sheetName, parsed, edits, name, fileName, addedColumns } = get();
       if (!originalFile || !sheetName || !parsed) return;
       set({ busy: true });
       try {
-        const blob = await exportWithEdits(originalFile, sheetName, parsed, edits);
-        download(blob, outName(name ?? fileName ?? "envanter"));
-        set({ busy: false, status: "COMPLETED" });
+        const out = await exportWithEdits(originalFile, sheetName, parsed, edits, addedColumns);
+        download(out.blob, outName(name ?? fileName ?? "envanter"));
+        set({ busy: false, status: "COMPLETED", error: out.warning });
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
