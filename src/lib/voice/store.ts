@@ -702,6 +702,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
     },
 
     skipPrompt: () => {
+      const prompt0 = get().prompt;
+      if (!prompt0) return;
       const prompt = get().prompt;
       if (!prompt) return;
       clearPendingContext();
