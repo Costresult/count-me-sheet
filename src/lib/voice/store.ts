@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useCountMe } from "@/lib/countme/store";
+import { editKey } from "@/lib/countme/types";
 import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
@@ -294,7 +295,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
   /** Current value of a cell in the working copy (edits win over the sheet). */
   const currentValue = (rowId: string, columnId: string): number => {
     const c = cme();
-    const key = `${rowId}::${columnId}`;
+    const key = editKey(rowId, columnId);
     const edited = (c.edits as Record<string, number | null>)[key];
     const raw =
       edited !== undefined ? edited : c.parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
