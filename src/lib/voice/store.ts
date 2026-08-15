@@ -349,6 +349,25 @@ export const useVoice = create<VoiceStore>((set, get) => {
     return true;
   };
 
+  /**
+   * Bare quantity without a product name ("42 CL", "35 cl", "otuz beş cl").
+   * Writes onto the currently targeted row (last confirmed voice target, or the
+   * row focused in the grid). Integer and decimal quantities take the exact same
+   * path; the value always goes through the final unit normalization gate.
+   */
+  const handleBareQuantity = (u: ParsedUtterance, index: ProductRow[]): boolean => {
+    const ctx = lastSafe && Date.now() - lastSafe.timestamp <= CONTEXT_TTL ? lastSafe : null;
+    const rowId = ctx?.rowId ?? cme().focus?.rowId ?? null;
+    if (!rowId) return false;
+    const row = index.find((r) => r.rowId === rowId);
+    if (!row) return false;
+    const d = resolveDestination([row], u);
+    const proposed = d.writes[0]?.value ?? u.terms[0]?.quantity ?? 0;
+    const value = finalizeValue(rowId, u, proposed, index);
+    applyWrites([{ rowId, value, note: d.reason }], u, index);
+    return true;
+  };
+
   const toUnmatched = (u: ParsedUtterance, detail: string) => {
     const page = cme().pages.activePage;
     const first = u.terms[0];
@@ -419,6 +438,9 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const catalogue = buildProductIndex(parsed);
     if (u.additive && !u.productText && u.terms.length > 0) {
       if (handleAdditive(u, catalogue)) return;
+    }
+    if (!u.productText && u.terms.length > 0 && !u.additive) {
+      if (handleBareQuantity(u, catalogue)) return;
     }
     if (!u.productText) {
       pushEntry({
