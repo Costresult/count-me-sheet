@@ -11,13 +11,16 @@ import {
   Maximize2,
   RotateCcw,
   Rows3,
+  Menu,
+  LogOut,
+  Download,
 } from "lucide-react";
 
 const statusLabel: Record<string, string> = {
   IDLE: "Hazır",
-  RUNNING: "Sayım açık",
+  RUNNING: "Devam Ediyor",
   PAUSED: "Duraklatıldı",
-  PAUSED_BY_USER: "Kullanıcı durdurdu",
+  PAUSED_BY_USER: "Duraklatıldı",
   COMPLETED: "Tamamlandı",
 };
 
@@ -62,6 +65,15 @@ export function Toolbar() {
   return (
     <header className="z-40 flex flex-col gap-1 border-b border-border bg-card px-2 py-1.5 shadow-sm">
       <div className="flex items-center gap-1 overflow-x-auto">
+        <button
+          type="button"
+          aria-label="Envanterler"
+          onClick={() => s.setSidebarOpen(true)}
+          className="mr-1 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium text-foreground hover:bg-secondary md:hidden"
+        >
+          <Menu className="size-4" />
+          Envanterler
+        </button>
         <span className="mr-1 shrink-0 text-sm font-black tracking-tight text-primary">COUNT ME</span>
         <input
           ref={fileRef}
@@ -77,12 +89,18 @@ export function Toolbar() {
         <TBtn onClick={() => fileRef.current?.click()} icon={Upload} label="Excel Yükle" variant="primary" />
         {s.parsed && (
           <>
+            <TBtn onClick={() => void s.exitWorkspace()} icon={LogOut} label="Envanterden Çık" />
             {s.status !== "RUNNING" ? (
               <TBtn onClick={() => s.setStatus("RUNNING")} icon={Play} label={s.status === "IDLE" ? "Envantere Başla" : "Devam Et"} />
             ) : (
               <TBtn onClick={() => s.setStatus("PAUSED")} icon={Pause} label="Duraklat" />
             )}
             <TBtn onClick={s.undoLast} icon={Undo2} label="Geri Al" disabled={s.undoStack.length === 0} />
+            <TBtn
+              onClick={() => s.activeId && void s.downloadSession(s.activeId)}
+              icon={Download}
+              label="Excel'i İndir"
+            />
             <TBtn onClick={() => void s.exportFile()} icon={CheckCircle2} label="Envanteri Bitir" />
             <div className="mx-1 h-6 w-px shrink-0 bg-border" />
             <TBtn onClick={autoFitAll} icon={Columns3} label="Tüm Kolonları Sığdır" />
@@ -110,7 +128,7 @@ export function Toolbar() {
               </option>
             ))}
           </select>
-          <span className="shrink-0 truncate">{s.fileName}</span>
+          <span className="shrink-0 truncate font-medium text-foreground">{s.name ?? s.fileName}</span>
           <span className="shrink-0">{s.parsed.rows.length} satır</span>
           <span className="shrink-0">{s.parsed.columns.length} kolon</span>
           <span
