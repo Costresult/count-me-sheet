@@ -8,9 +8,10 @@ import {
   saveSession,
   setActiveId,
 } from "./storage";
-import { exportWithEdits, loadWorkbook, parseSheet } from "./workbook";
+import { exportWithEdits, loadWorkbook, parseSheet, withAddedColumns } from "./workbook";
 import { derivePages, MAX_PAGES, pageColumnId } from "./pages";
 import {
+  type AddedColumn,
   editKey,
   emptyPages,
   type PageState,
@@ -91,6 +92,7 @@ interface CountMeState {
   pageFeedback: string | null;
   conflict: WriteConflict | null;
   mappingOpen: boolean;
+  addedColumns: AddedColumn[];
 
   init: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -118,6 +120,7 @@ interface CountMeState {
   setPageCount: (count: number) => void;
   setPageColumn: (page: number, columnId: string | null) => void;
   setMappingOpen: (open: boolean) => void;
+  addCountColumn: (page?: number) => string | null;
   writePageValue: (
     rowId: string,
     page: number,
@@ -169,6 +172,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       edits: s.edits,
       view: s.view,
       pages: s.pages,
+      addedColumns: s.addedColumns,
       createdAt: s.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
@@ -196,7 +200,9 @@ export const useCountMe = create<CountMeState>((set, get) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const names: string[] = wb.worksheets.map((ws: any) => ws.name as string);
     const sheetName = session.sheetName ?? names[0] ?? null;
-    const parsed = sheetName ? parseSheet(wb.getWorksheet(sheetName)) : null;
+    const addedColumns = session.addedColumns ?? [];
+    const base = sheetName ? parseSheet(wb.getWorksheet(sheetName)) : null;
+    const parsed = withAddedColumns(base, addedColumns);
     set({
       activeId: session.id,
       name: session.name,
@@ -206,6 +212,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       sheetNames: names,
       sheetName,
       parsed,
+      addedColumns,
       edits: session.edits ?? {},
       view: session.view ?? emptyView(),
       pages: derivePages(parsed, session.pages),
@@ -242,6 +249,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       conflict: null,
       pageFeedback: null,
       mappingOpen: false,
+      addedColumns: [],
     });
 
   return {
@@ -268,6 +276,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
     pageFeedback: null,
     conflict: null,
     mappingOpen: false,
+    addedColumns: [],
 
     refreshSessions: async () => {
       set({ sessions: await listSessions() });
@@ -410,9 +419,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
           session.sheetName,
           parsed,
           session.edits ?? {},
+          session.addedColumns ?? [],
         );
-        download(blob, outName(session.name || session.fileName));
-        set({ busy: false });
+        download(blob.blob, outName(session.name || session.fileName));
+        set({ busy: false, error: blob.warning });
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
       }
@@ -434,6 +444,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
           view: emptyView(),
           pages: derivePages(parsed),
           conflict: null,
+          addedColumns: [],
         });
         persist(true);
       } catch (e) {
@@ -481,9 +492,16 @@ export const useCountMe = create<CountMeState>((set, get) => {
 
     setActivePage: (page) => {
       const { pages } = get();
-      const next = Math.min(Math.max(1, Math.round(page)), pages.pageCount);
+      const next = Math.min(Math.max(1, Math.round(page)), MAX_PAGES);
       if (next === pages.activePage) return;
-      set({ pages: { ...pages, activePage: next }, pageFeedback: `Sayfa ${next} aktif` });
+      // pages are dynamic: moving forward grows the page count when needed
+      const pageCount = Math.max(pages.pageCount, next);
+      const pageColumns = { ...pages.pageColumns };
+      for (let p = 1; p <= pageCount; p++) if (!(p in pageColumns)) pageColumns[p] = null;
+      set({
+        pages: { ...pages, activePage: next, pageCount, pageColumns },
+        pageFeedback: pageColumns[next] ? `Sayfa ${next} aktif` : null,
+      });
       if (feedbackTimer) clearTimeout(feedbackTimer);
       feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 1600);
       persist();
@@ -515,6 +533,29 @@ export const useCountMe = create<CountMeState>((set, get) => {
       pageColumns[page] = columnId;
       set({ pages: { ...pages, pageColumns } });
       persist();
+    },
+
+    addCountColumn: (page) => {
+      const { parsed, addedColumns, pages } = get();
+      if (!parsed) return null;
+      const existingNums = parsed.columns
+        .filter((c) => c.kind === "count")
+        .map((c) => {
+          const m = /(\d+)\s*$/.exec(c.header);
+          return m ? Number(m[1]) : 0;
+        });
+      const nextNum = Math.max(0, ...existingNums, parsed.columns.filter((c) => c.kind === "count").length) + 1;
+      const added: AddedColumn = { id: `v${Date.now().toString(36)}`, header: `Sayım ${nextNum}` };
+      const nextAdded = [...addedColumns, added];
+      const nextParsed = withAddedColumns(parsed, [added]);
+      set({ addedColumns: nextAdded, parsed: nextParsed });
+      const target = page ?? pages.activePage;
+      get().setPageColumn(target, added.id);
+      set({ pageFeedback: `${added.header} kolonu oluşturuldu` });
+      if (feedbackTimer) clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 2000);
+      persist();
+      return added.id;
     },
 
     writePageValue: (rowId, page, value, source = "USER") => {
@@ -615,13 +656,13 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     exportFile: async () => {
-      const { originalFile, sheetName, parsed, edits, name, fileName } = get();
+      const { originalFile, sheetName, parsed, edits, name, fileName, addedColumns } = get();
       if (!originalFile || !sheetName || !parsed) return;
       set({ busy: true });
       try {
-        const blob = await exportWithEdits(originalFile, sheetName, parsed, edits);
-        download(blob, outName(name ?? fileName ?? "envanter"));
-        set({ busy: false, status: "COMPLETED" });
+        const out = await exportWithEdits(originalFile, sheetName, parsed, edits, addedColumns);
+        download(out.blob, outName(name ?? fileName ?? "envanter"));
+        set({ busy: false, status: "COMPLETED", error: out.warning });
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });

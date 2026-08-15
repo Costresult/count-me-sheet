@@ -1,7 +1,7 @@
 import type { PageState, ParsedSheet, SheetColumn } from "./types";
 import { emptyPages } from "./types";
 
-export const MAX_PAGES = 40;
+export const MAX_PAGES = 30;
 
 /** Excel columns that may serve as a physical counting page. TOTAL is never eligible. */
 export function eligibleCountColumns(parsed: ParsedSheet | null): SheetColumn[] {

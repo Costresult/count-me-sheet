@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useCountMe } from "@/lib/countme/store";
-import { eligibleCountColumns } from "@/lib/countme/pages";
+import { eligibleCountColumns, MAX_PAGES } from "@/lib/countme/pages";
 
 export function PageMappingDialog() {
   const open = useCountMe((s) => s.mappingOpen);
@@ -17,6 +17,7 @@ export function PageMappingDialog() {
   const pages = useCountMe((s) => s.pages);
   const setPageColumn = useCountMe((s) => s.setPageColumn);
   const setPageCount = useCountMe((s) => s.setPageCount);
+  const addCountColumn = useCountMe((s) => s.addCountColumn);
 
   const options = eligibleCountColumns(parsed);
   const list = Array.from({ length: pages.pageCount }, (_, i) => i + 1);
@@ -38,7 +39,12 @@ export function PageMappingDialog() {
             −
           </Button>
           <span className="w-8 text-center font-semibold tabular-nums">{pages.pageCount}</span>
-          <Button size="sm" variant="secondary" onClick={() => setPageCount(pages.pageCount + 1)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={pages.pageCount >= MAX_PAGES}
+            onClick={() => setPageCount(pages.pageCount + 1)}
+          >
             +
           </Button>
           <span className="ml-auto text-[12px] text-muted-foreground">
@@ -65,13 +71,24 @@ export function PageMappingDialog() {
                     </option>
                   ))}
                 </select>
+                {!value && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid={`create-column-${p}`}
+                    onClick={() => addCountColumn(p)}
+                  >
+                    + Kolon
+                  </Button>
+                )}
               </div>
             );
           })}
           {options.length < pages.pageCount && (
-            <p className="rounded-md bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
-              Uygun boş sayım kolonu yetersiz. Fazla sayfalar için Excel’de kolon açın veya eşlemeyi
-              elle seçin.
+            <p className="rounded-md bg-muted px-3 py-2 text-[12px] text-muted-foreground">
+              Uygun sayım kolonu sayısı sayfa sayısından az. Eşlemesi olmayan sayfalar için “+ Kolon”
+              ile yeni sayım kolonu oluşturabilirsiniz; kolon TOPLAM’dan önce eklenir ve TOPLAM
+              formülü güvenliyse otomatik güncellenir.
             </p>
           )}
         </div>
