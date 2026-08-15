@@ -26,6 +26,7 @@ export type VoiceState =
   | "PAUSED"
   | "PAUSED_BY_USER"
   | "WAITING_FOR_USER"
+  | "CANCELLED"
   | "ERROR";
 
 export type MicMode = "continuous" | "push";
@@ -37,7 +38,7 @@ export interface TranscriptEntry {
   timestamp: number;
   sessionId: string | null;
   physicalPage: number;
-  outcome: "written" | "candidates" | "unmatched" | "command" | "ignored";
+  outcome: "written" | "candidates" | "unmatched" | "command" | "ignored" | "skipped";
   detail: string;
 }
 
@@ -93,8 +94,12 @@ interface VoiceStore {
   /** Explicit row pick from the stock search inside the popup. */
   chooseRow: (rowId: string) => Promise<void>;
   dismissPrompt: (toUnmatched?: boolean) => void;
+  /** ATLA: write nothing, mark skipped, continue with the next utterance. */
+  skipPrompt: () => void;
   /** X on the popup: cancel the decision, write nothing, learn nothing. */
   cancelPrompt: () => void;
+  /** F1 hotkey: toggles capture only, never resolves an open decision. */
+  toggleListening: () => void;
 }
 
 const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -102,6 +107,9 @@ const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toStri
 let capture: SpeechCapture | null = null;
 const queue: string[] = [];
 let draining = false;
+/** Auto-pauses the microphone when a decision stays open, so nothing deadlocks. */
+let promptTimer: ReturnType<typeof setTimeout> | null = null;
+const PROMPT_TIMEOUT = 45_000;
 
 /** Last confirmed write target, used by follow-up "+1" style commands. */
 interface SafeContext {
