@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useCountMe } from "@/lib/countme/store";
 import { cn } from "@/lib/utils";
 import {
@@ -14,6 +14,7 @@ import {
   Menu,
   LogOut,
   Download,
+  ListPlus,
 } from "lucide-react";
 
 const statusLabel: Record<string, string> = {
@@ -62,6 +63,20 @@ export function Toolbar() {
   const autoFitAll = () =>
     (window as unknown as { __countmeAutoFitAll?: () => void }).__countmeAutoFitAll?.();
 
+  const undo = s.undoLast;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo]);
+
   return (
     <header className="z-40 flex flex-col gap-1 border-b border-border bg-card px-2 py-1.5 shadow-sm">
       <div className="flex items-center gap-1 overflow-x-auto">
@@ -97,11 +112,22 @@ export function Toolbar() {
             )}
             <TBtn onClick={s.undoLast} icon={Undo2} label="Geri Al" disabled={s.undoStack.length === 0} />
             <TBtn
-              onClick={() => s.activeId && void s.downloadSession(s.activeId)}
-              icon={Download}
-              label="Excel'i İndir"
+              onClick={() => s.setUnmatchedOpen(true)}
+              icon={ListPlus}
+              label={`Eşleşmeyen Ürünler${s.unmatched.length ? ` (${s.unmatched.length})` : ""}`}
             />
-            <TBtn onClick={() => void s.exportFile()} icon={CheckCircle2} label="Envanteri Bitir" />
+            <TBtn
+              onClick={() => void s.exportDraft()}
+              icon={Download}
+              label="Ara Kopyayı İndir"
+              disabled={s.busy}
+            />
+            <TBtn
+              onClick={() => s.setCompleteOpen(true)}
+              icon={CheckCircle2}
+              label="Envanteri Bitir"
+              disabled={s.busy}
+            />
             <div className="mx-1 h-6 w-px shrink-0 bg-border" />
             <TBtn onClick={autoFitAll} icon={Columns3} label="Tüm Kolonları Sığdır" />
             <TBtn
