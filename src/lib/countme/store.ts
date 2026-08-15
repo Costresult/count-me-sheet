@@ -244,6 +244,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
         };
         await saveSession(session);
         await applySession(session);
+        set({ sidebarOpen: false });
         await get().refreshSessions();
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
