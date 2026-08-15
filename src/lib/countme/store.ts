@@ -145,6 +145,9 @@ export const useCountMe = create<CountMeState>((set, get) => {
     uploadFile: async (file) => {
       set({ busy: true, error: null });
       try {
+        if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
+          throw new Error("Desteklenmeyen dosya türü. Lütfen .xlsx veya .xlsm dosyası seçin.");
+        }
         const buffer = await file.arrayBuffer();
         const wb = await loadWorkbook(buffer);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,10 +166,12 @@ export const useCountMe = create<CountMeState>((set, get) => {
           view: emptyView(),
           status: "IDLE",
           busy: false,
+          error: null,
+          focus: null,
         });
         persist(true);
       } catch (e) {
-        set({ busy: false, error: `Dosya okunamadı: ${(e as Error).message}` });
+        set({ busy: false, error: (e as Error).message });
       }
     },
 
@@ -196,7 +201,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     writeInventoryValue: (rowId, columnId, value) => {
-      const { edits, parsed, undoStack } = get();
+      const { edits, parsed, undoStack, status } = get();
       const col = parsed?.columns.find((c) => c.id === columnId);
       if (!col || col.kind === "total") return;
       const key = editKey(rowId, columnId);
@@ -204,6 +209,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       set({
         edits: next,
         undoStack: [...undoStack, { rowId, columnId, previous: edits[key] }].slice(-200),
+        ...(status === "RUNNING" ? { status: "PAUSED_BY_USER" as SessionStatus } : {}),
       });
       get().focusCell(rowId, columnId);
       persist();
