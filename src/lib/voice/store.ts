@@ -98,6 +98,8 @@ interface VoiceStore {
   skipPrompt: () => void;
   /** X on the popup: cancel the decision, write nothing, learn nothing. */
   cancelPrompt: () => void;
+  /** Continues draining queued speech after a blocking decision was answered. */
+  resumeQueue: () => void;
   /** F1 hotkey: toggles capture only, never resolves an open decision. */
   toggleListening: () => void;
 }
@@ -761,8 +763,6 @@ if (typeof window !== "undefined") {
   useCountMe.subscribe((state, prev) => {
     // An occupied-cell decision blocks the queue; resume once it is answered.
     if (prev.conflict && !state.conflict) {
-      const v = useVoice.getState();
-      if (!v.prompt) v.ingestTranscript("");
       setTimeout(() => useVoice.getState().resumeQueue(), 0);
     }
     if (state.status === "PAUSED_BY_USER" && prev.status !== "PAUSED_BY_USER") {
