@@ -10,7 +10,11 @@ import {
   listAliases,
   deleteAlias,
   recordCorrection,
+  learnUnitCorrection,
+  listUnitCorrections,
+  findUnitCorrection,
   type AliasRecord,
+  type UnitCorrection,
 } from "./aliases";
 import { primeMicrophone, SpeechCapture, speechSupported } from "./speech";
 import { unitLabel } from "./units";
@@ -46,6 +50,8 @@ export interface CandidateOption {
 }
 
 export interface CandidatePrompt {
+  decisionId: string;
+  utteranceId: string;
   utterance: ParsedUtterance;
   confidence: MatchConfidence;
   productConfidence: MatchConfidence;
@@ -68,6 +74,7 @@ interface VoiceStore {
   prompt: CandidatePrompt | null;
   error: string | null;
   aliases: AliasRecord[];
+  corrections: UnitCorrection[];
   panelOpen: boolean;
 
   refreshAliases: () => Promise<void>;
@@ -86,6 +93,8 @@ interface VoiceStore {
   /** Explicit row pick from the stock search inside the popup. */
   chooseRow: (rowId: string) => Promise<void>;
   dismissPrompt: (toUnmatched?: boolean) => void;
+  /** X on the popup: cancel the decision, write nothing, learn nothing. */
+  cancelPrompt: () => void;
 }
 
 const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -93,6 +102,35 @@ const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toStri
 let capture: SpeechCapture | null = null;
 const queue: string[] = [];
 let draining = false;
+
+/** Last confirmed write target, used by follow-up "+1" style commands. */
+interface SafeContext {
+  rowId: string;
+  rowLabel: string;
+  page: number;
+  columnId: string | null;
+  value: number;
+  spokenUnit: string | null;
+  productText: string;
+  timestamp: number;
+}
+let lastSafe: SafeContext | null = null;
+const CONTEXT_TTL = 5 * 60 * 1000;
+
+/** Voice writes still eligible to be learned from when the user corrects them. */
+interface VoiceWriteRecord {
+  rowId: string;
+  columnId: string;
+  rowLabel: string;
+  value: number;
+  page: number;
+  spokenUnit: string | null;
+  spokenQuantity: number;
+  rawTranscript: string;
+  normalizedTranscript: string;
+}
+const voiceWrites = new Map<string, VoiceWriteRecord>();
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 export const useVoice = create<VoiceStore>((set, get) => {
   // deterministic test hook: feed a transcript without a microphone
@@ -133,9 +171,39 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const page = cme().pages.activePage;
     const names: string[] = [];
     for (const w of writes) {
-      cme().writePageValue(w.rowId, page, w.value, "VOICE_AI");
       const row = index.find((r) => r.rowId === w.rowId);
-      names.push(`${row?.label ?? w.rowId} = ${w.value}`);
+      const term = u.terms[0] ?? null;
+      // a repeated manual correction for the same row + spoken quantity wins
+      const learned = term
+        ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
+        : null;
+      const value = learned ? learned.correctedValue : w.value;
+      cme().writePageValue(w.rowId, page, value, "VOICE_AI");
+      const columnId = cme().pages.pageColumns[page] ?? null;
+      if (columnId) {
+        voiceWrites.set(`${w.rowId}|${columnId}`, {
+          rowId: w.rowId,
+          columnId,
+          rowLabel: row?.label ?? w.rowId,
+          value,
+          page,
+          spokenUnit: term?.spokenUnit ?? null,
+          spokenQuantity: term?.quantity ?? 0,
+          rawTranscript: u.rawTranscript,
+          normalizedTranscript: u.normalizedTranscript,
+        });
+      }
+      lastSafe = {
+        rowId: w.rowId,
+        rowLabel: row?.label ?? w.rowId,
+        page,
+        columnId,
+        value,
+        spokenUnit: term?.spokenUnit ?? null,
+        productText: u.productText,
+        timestamp: Date.now(),
+      };
+      names.push(`${row?.label ?? w.rowId} = ${value}${learned ? " (öğrenilen düzeltme)" : ""}`);
     }
     pushEntry({
       rawTranscript: u.rawTranscript,
@@ -144,6 +212,61 @@ export const useVoice = create<VoiceStore>((set, get) => {
       outcome: "written",
       detail: names.join(" · "),
     });
+  };
+
+  /** Current value of a cell in the working copy (edits win over the sheet). */
+  const currentValue = (rowId: string, columnId: string): number => {
+    const c = cme();
+    const key = `${rowId}::${columnId}`;
+    const edited = (c.edits as Record<string, number | null>)[key];
+    const raw =
+      edited !== undefined ? edited : c.parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
+    const n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  /** "+1", "artı 25 CL", "bir tane daha" → ADD to the last confirmed target. */
+  const handleAdditive = (u: ParsedUtterance, index: ProductRow[]): boolean => {
+    const ctx = lastSafe;
+    if (!ctx || Date.now() - ctx.timestamp > CONTEXT_TTL || !ctx.columnId) {
+      set({ error: `“${u.rawTranscript}” hangi ürün için? Önce ürünü söyleyin.` });
+      pushEntry({
+        rawTranscript: u.rawTranscript,
+        normalizedTranscript: u.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "ignored",
+        detail: "önceki güvenli hedef yok",
+      });
+      return true;
+    }
+    const row = index.find((r) => r.rowId === ctx.rowId);
+    if (!row) return false;
+    const d = resolveDestination([row], u);
+    const delta = d.writes[0]?.value ?? u.terms[0]?.quantity ?? 0;
+    if (!delta) return false;
+    const old = currentValue(ctx.rowId, ctx.columnId);
+    const next = round6(old + delta);
+    cme().writeInventoryValue(ctx.rowId, ctx.columnId, next, "VOICE_AI");
+    voiceWrites.set(`${ctx.rowId}|${ctx.columnId}`, {
+      rowId: ctx.rowId,
+      columnId: ctx.columnId,
+      rowLabel: ctx.rowLabel,
+      value: next,
+      page: ctx.page,
+      spokenUnit: u.terms[0]?.spokenUnit ?? null,
+      spokenQuantity: u.terms[0]?.quantity ?? 0,
+      rawTranscript: u.rawTranscript,
+      normalizedTranscript: u.normalizedTranscript,
+    });
+    lastSafe = { ...ctx, value: next, timestamp: Date.now() };
+    pushEntry({
+      rawTranscript: u.rawTranscript,
+      normalizedTranscript: u.normalizedTranscript,
+      physicalPage: ctx.page,
+      outcome: "written",
+      detail: `${ctx.rowLabel}: ${old} + ${delta} = ${next} (ekleme)`,
+    });
+    return true;
   };
 
   const toUnmatched = (u: ParsedUtterance, detail: string) => {
@@ -213,6 +336,10 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const u = parseUtterance(raw);
     const parsed = cme().parsed;
     if (!parsed) return;
+    const catalogue = buildProductIndex(parsed);
+    if (u.additive && !u.productText && u.terms.length > 0) {
+      if (handleAdditive(u, catalogue)) return;
+    }
     if (!u.productText) {
       pushEntry({
         rawTranscript: raw,
@@ -224,7 +351,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       return;
     }
 
-    const index = buildProductIndex(parsed);
+    const index = catalogue;
     const match = matchProduct(index, u.productText, get().aliases);
 
     if (!match.best) {
@@ -284,6 +411,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
     set({
       state: "WAITING_FOR_USER",
       prompt: {
+        decisionId: uid("d"),
+        utteranceId: uid("u"),
         utterance: u,
         confidence: productConfidence,
         productConfidence,
@@ -400,9 +529,11 @@ export const useVoice = create<VoiceStore>((set, get) => {
     prompt: null,
     error: null,
     aliases: [],
+    corrections: [],
     panelOpen: false,
 
-    refreshAliases: async () => set({ aliases: await listAliases() }),
+    refreshAliases: async () =>
+      set({ aliases: await listAliases(), corrections: await listUnitCorrections() }),
     forgetAlias: async (id) => {
       await deleteAlias(id);
       set({ aliases: await listAliases() });
@@ -515,6 +646,19 @@ export const useVoice = create<VoiceStore>((set, get) => {
       if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
       void drain();
     },
+
+    cancelPrompt: () => {
+      const prompt = get().prompt;
+      if (!prompt) return;
+      set({ prompt: null, state: "PAUSED", interim: "" });
+      pushEntry({
+        rawTranscript: prompt.utterance.rawTranscript,
+        normalizedTranscript: prompt.utterance.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "ignored",
+        detail: "kullanıcı iptal etti",
+      });
+    },
   };
 });
 
@@ -524,6 +668,58 @@ if (typeof window !== "undefined") {
     if (state.status === "PAUSED_BY_USER" && prev.status !== "PAUSED_BY_USER") {
       const v = useVoice.getState();
       if (v.state === "LISTENING" || v.state === "PROCESSING") v.pauseListening(true);
+    }
+    // An open matching decision must never survive a manual intervention.
+    if (state.status === "PAUSED_BY_USER" && prev.status !== "PAUSED_BY_USER") {
+      const v = useVoice.getState();
+      if (v.prompt) v.cancelPrompt();
+    }
+
+    // Manual correction of a cell the voice engine wrote = strong learning evidence.
+    if (state.history !== prev.history && state.history.length > prev.history.length) {
+      const ev = state.history[state.history.length - 1];
+      if (
+        ev &&
+        ev.source === "MANUAL" &&
+        (ev.action === "CELL_WRITE" || ev.action === "CELL_CLEAR") &&
+        ev.rowId &&
+        ev.columnId
+      ) {
+        const key = `${ev.rowId}|${ev.columnId}`;
+        const written = voiceWrites.get(key);
+        if (written && Number(ev.oldValue) === written.value && ev.newValue !== written.value) {
+          voiceWrites.delete(key);
+          const corrected = Number(ev.newValue);
+          void (async () => {
+            await recordCorrection({
+              sessionId: state.activeId,
+              rawTranscript: written.rawTranscript,
+              normalizedTranscript: written.normalizedTranscript,
+              aiCandidate: written.rowLabel,
+              aiRowId: written.rowId,
+              aiUnit: written.spokenUnit,
+              aiValue: written.value,
+              correctedRowId: ev.rowId!,
+              correctedName: written.rowLabel,
+              correctedValue: Number.isFinite(corrected) ? corrected : null,
+              correctedUnit: written.spokenUnit,
+              physicalPage: written.page,
+              unitContext: written.spokenUnit,
+              kind: "VALUE",
+            });
+            if (Number.isFinite(corrected)) {
+              await learnUnitCorrection({
+                rowId: written.rowId,
+                rowLabel: written.rowLabel,
+                spokenUnit: written.spokenUnit,
+                spokenQuantity: written.spokenQuantity,
+                correctedValue: corrected,
+              });
+            }
+            await useVoice.getState().refreshAliases();
+          })();
+        }
+      }
     }
   });
 }

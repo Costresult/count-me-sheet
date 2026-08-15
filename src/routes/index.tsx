@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { Toolbar } from "@/components/countme/Toolbar";
 import { SheetGrid } from "@/components/countme/SheetGrid";
 import { EmptyState } from "@/components/countme/EmptyState";
-import { FocusDemoBar } from "@/components/countme/FocusDemoBar";
 import { InventorySidebar } from "@/components/countme/InventorySidebar";
 import { PageBar, MobilePageBar } from "@/components/countme/PageBar";
 import { PageMappingDialog } from "@/components/countme/PageMappingDialog";
@@ -63,7 +62,6 @@ function Index() {
         <Toolbar />
         {parsed && <PageBar />}
         <div className="min-h-0 flex-1">{parsed ? <SheetGrid /> : <EmptyState />}</div>
-        {parsed && <FocusDemoBar />}
         {parsed && <MobilePageBar />}
       </main>
       <PageMappingDialog />

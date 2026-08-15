@@ -26,20 +26,40 @@ export interface CorrectionRecord {
   correctedName: string;
   physicalPage: number | null;
   unitContext: string | null;
+  normalizedTranscript?: string | null;
+  aiUnit?: string | null;
+  aiValue?: number | null;
+  correctedValue?: number | null;
+  correctedUnit?: string | null;
+  kind?: "PRODUCT" | "VALUE" | "ROW";
+}
+
+/** Learned "this spoken quantity+unit means this value on this row" evidence. */
+export interface UnitCorrection {
+  id: string;
+  rowId: string;
+  rowLabel: string;
+  spokenUnit: string | null;
+  spokenQuantity: number;
+  correctedValue: number;
+  count: number;
+  lastUsed: number;
 }
 
 const DB_NAME = "countme-learning";
 const ALIASES = "aliases";
 const CORRECTIONS = "corrections";
+const UNITMAP = "unitmap";
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 function db() {
   if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, 1, {
+    dbPromise = openDB(DB_NAME, 2, {
       upgrade(d) {
         if (!d.objectStoreNames.contains(ALIASES)) d.createObjectStore(ALIASES, { keyPath: "id" });
         if (!d.objectStoreNames.contains(CORRECTIONS))
           d.createObjectStore(CORRECTIONS, { keyPath: "id" });
+        if (!d.objectStoreNames.contains(UNITMAP)) d.createObjectStore(UNITMAP, { keyPath: "id" });
       },
     });
   }
@@ -127,4 +147,47 @@ export async function listCorrections(): Promise<CorrectionRecord[]> {
   } catch {
     return [];
   }
+}
+
+const unitKey = (rowId: string, spokenUnit: string | null, quantity: number) =>
+  `${rowId}|${spokenUnit ?? "-"}|${quantity}`;
+
+/**
+ * Stores an explicit manual correction of a value the voice engine wrote.
+ * Repeating the same correction raises its count (and therefore its weight).
+ */
+export async function learnUnitCorrection(input: {
+  rowId: string;
+  rowLabel: string;
+  spokenUnit: string | null;
+  spokenQuantity: number;
+  correctedValue: number;
+}): Promise<UnitCorrection> {
+  const d = await db();
+  const id = unitKey(input.rowId, input.spokenUnit, input.spokenQuantity);
+  const existing = (await d.get(UNITMAP, id)) as UnitCorrection | undefined;
+  const rec: UnitCorrection = existing
+    ? { ...existing, correctedValue: input.correctedValue, count: existing.count + 1, lastUsed: Date.now() }
+    : { id, ...input, count: 1, lastUsed: Date.now() };
+  await d.put(UNITMAP, rec);
+  return rec;
+}
+
+export async function listUnitCorrections(): Promise<UnitCorrection[]> {
+  try {
+    return ((await (await db()).getAll(UNITMAP)) as UnitCorrection[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Looks up a previously corrected value for the same row + spoken quantity/unit. */
+export function findUnitCorrection(
+  list: UnitCorrection[],
+  rowId: string,
+  spokenUnit: string | null,
+  quantity: number,
+): UnitCorrection | null {
+  const id = unitKey(rowId, spokenUnit, quantity);
+  return list.find((c) => c.id === id) ?? null;
 }

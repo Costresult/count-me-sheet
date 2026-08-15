@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useCountMe } from "@/lib/countme/store";
+import { StockSearch } from "./StockSearch";
 import { cn } from "@/lib/utils";
 import {
   Upload,
@@ -133,6 +134,15 @@ export function Toolbar() {
           </>
         )}
       </div>
+
+      {s.parsed && (
+        <div className="w-full max-w-sm">
+          <StockSearch
+            testid="toolbar-stock-search"
+            onSelect={(rowId) => s.focusProductRow(rowId)}
+          />
+        </div>
+      )}
 
       {s.parsed && (
         <div className="flex items-center gap-2 overflow-x-auto text-[11px] text-muted-foreground">
