@@ -529,9 +529,11 @@ export const useVoice = create<VoiceStore>((set, get) => {
     prompt: null,
     error: null,
     aliases: [],
+    corrections: [],
     panelOpen: false,
 
-    refreshAliases: async () => set({ aliases: await listAliases() }),
+    refreshAliases: async () =>
+      set({ aliases: await listAliases(), corrections: await listUnitCorrections() }),
     forgetAlias: async (id) => {
       await deleteAlias(id);
       set({ aliases: await listAliases() });
@@ -643,6 +645,19 @@ export const useVoice = create<VoiceStore>((set, get) => {
       set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
       if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
       void drain();
+    },
+
+    cancelPrompt: () => {
+      const prompt = get().prompt;
+      if (!prompt) return;
+      set({ prompt: null, state: "PAUSED", interim: "" });
+      pushEntry({
+        rawTranscript: prompt.utterance.rawTranscript,
+        normalizedTranscript: prompt.utterance.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "ignored",
+        detail: "kullanıcı iptal etti",
+      });
     },
   };
 });
