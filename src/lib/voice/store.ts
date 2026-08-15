@@ -325,6 +325,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const delta = finalizeValue(ctx.rowId, u, rawDelta, index);
     if (!delta) return false;
     const old = currentValue(ctx.rowId, ctx.columnId);
+    if (typeof window !== "undefined")
+      console.debug("[countme:add]", { key: editKey(ctx.rowId, ctx.columnId), keys: Object.keys(cme().edits), old, delta });
     const next = round6(old + delta);
     cme().writeInventoryValue(ctx.rowId, ctx.columnId, next, "VOICE_AI");
     voiceWrites.set(`${ctx.rowId}|${ctx.columnId}`, {
