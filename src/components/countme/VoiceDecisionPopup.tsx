@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useVoice } from "@/lib/voice/store";
 import { useCountMe } from "@/lib/countme/store";
 import { StockSearch } from "./StockSearch";
-import { ListPlus, Search, X } from "lucide-react";
+import { ListPlus, Search, SkipForward, X } from "lucide-react";
 
 const conf: Record<string, string> = { HIGH: "Yüksek", MEDIUM: "Orta", LOW: "Belirsiz" };
 
@@ -13,6 +13,7 @@ export function VoiceDecisionPopup() {
   const chooseRow = useVoice((s) => s.chooseRow);
   const dismiss = useVoice((s) => s.dismissPrompt);
   const cancel = useVoice((s) => s.cancelPrompt);
+  const skip = useVoice((s) => s.skipPrompt);
   const focusRow = useCountMe((s) => s.focusProductRow);
   const [searching, setSearching] = useState(false);
 
@@ -104,6 +105,15 @@ export function VoiceDecisionPopup() {
           Eşleşmeyenlere Ekle
         </button>
       </div>
+      <button
+        type="button"
+        data-testid="voice-skip"
+        onClick={() => skip()}
+        className="mt-1.5 inline-flex w-full items-center justify-center gap-1 rounded-md bg-secondary px-2 py-1.5 text-[12px] font-semibold text-secondary-foreground hover:bg-accent"
+      >
+        <SkipForward className="size-3.5" />
+        ATLA
+      </button>
     </div>
   );
 }

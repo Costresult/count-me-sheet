@@ -33,6 +33,20 @@ const TIMES = new Set(["carpi", "x", "kere", "çarpı"]);
 const NOISE = new Set(["tane", "adetten", "den", "dan", "lik", "luk"]);
 const MORE = new Set(["daha", "ekle"]);
 
+/** "35cl", "70CL", "250ml", "1.5lt" spoken as one glued token. */
+const GLUED = /^(\d+(?:[.,]\d+)?)(cl|ml|lt|litre|l|kg|gr|gram|g|adet)$/;
+
+/** Splits glued number+unit tokens so the unit is never dropped. */
+function expandTokens(tokens: string[]): string[] {
+  const out: string[] = [];
+  for (const t of tokens) {
+    const m = GLUED.exec(t);
+    if (m) out.push(m[1]!, m[2]!);
+    else out.push(t);
+  }
+  return out;
+}
+
 /** "70lik", "70likten", "yetmislik" -> bottle size in CL */
 function bottleSizeToken(token: string): number | null {
   const m = /^(\d+)(lik|lik|luk|luk|lik)(ten|tan|den|dan)?$/.exec(token);
@@ -47,7 +61,7 @@ function bottleSizeToken(token: string): number | null {
 
 export function parseUtterance(raw: string): ParsedUtterance {
   const normalizedTranscript = normalizeText(raw);
-  const tokens = tokenize(raw);
+  const tokens = expandTokens(tokenize(raw));
   const rawTrimmed = raw.trim();
   const additive =
     rawTrimmed.startsWith("+") ||

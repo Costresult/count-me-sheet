@@ -165,7 +165,7 @@ interface CountMeState {
     value: number | null,
     source?: WriteSource,
   ) => void;
-  resolveConflict: (accept: boolean) => void;
+  resolveConflict: (action: "replace" | "add" | "cancel" | boolean) => void;
 
   focusProductRow: (rowId: string) => void;
   focusCell: (rowId: string, columnId: string) => void;
@@ -749,16 +749,24 @@ export const useCountMe = create<CountMeState>((set, get) => {
       );
     },
 
-    resolveConflict: (accept) => {
+    resolveConflict: (action) => {
+      const mode = action === true ? "replace" : action === false ? "cancel" : action;
       const c = get().conflict;
       set({ conflict: null });
-      if (!c || !accept) return;
+      if (!c || mode === "cancel") return;
       const { pages } = get();
       set({ pages: { ...pages, lastActiveRow: c.rowId } });
+      let value = c.value;
+      if (mode === "add") {
+        const existing = Number(String(c.existing ?? "").replace(",", "."));
+        const base = Number.isFinite(existing) ? existing : 0;
+        const incoming = c.value === null ? 0 : c.value;
+        value = Math.round((base + incoming) * 1e6) / 1e6;
+      }
       get().writeInventoryValue(
         c.rowId,
         c.columnId,
-        c.value,
+        value,
         c.source === "VOICE_AI" ? "VOICE_AI" : c.source === "SYSTEM" ? "SYSTEM" : "MANUAL",
       );
     },

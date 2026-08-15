@@ -26,6 +26,7 @@ export type VoiceState =
   | "PAUSED"
   | "PAUSED_BY_USER"
   | "WAITING_FOR_USER"
+  | "CANCELLED"
   | "ERROR";
 
 export type MicMode = "continuous" | "push";
@@ -37,7 +38,7 @@ export interface TranscriptEntry {
   timestamp: number;
   sessionId: string | null;
   physicalPage: number;
-  outcome: "written" | "candidates" | "unmatched" | "command" | "ignored";
+  outcome: "written" | "candidates" | "unmatched" | "command" | "ignored" | "skipped";
   detail: string;
 }
 
@@ -93,8 +94,14 @@ interface VoiceStore {
   /** Explicit row pick from the stock search inside the popup. */
   chooseRow: (rowId: string) => Promise<void>;
   dismissPrompt: (toUnmatched?: boolean) => void;
+  /** ATLA: write nothing, mark skipped, continue with the next utterance. */
+  skipPrompt: () => void;
   /** X on the popup: cancel the decision, write nothing, learn nothing. */
   cancelPrompt: () => void;
+  /** Continues draining queued speech after a blocking decision was answered. */
+  resumeQueue: () => void;
+  /** F1 hotkey: toggles capture only, never resolves an open decision. */
+  toggleListening: () => void;
 }
 
 const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -102,6 +109,9 @@ const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toStri
 let capture: SpeechCapture | null = null;
 const queue: string[] = [];
 let draining = false;
+/** Auto-pauses the microphone when a decision stays open, so nothing deadlocks. */
+let promptTimer: ReturnType<typeof setTimeout> | null = null;
+const PROMPT_TIMEOUT = 45_000;
 
 /** Last confirmed write target, used by follow-up "+1" style commands. */
 interface SafeContext {
@@ -156,7 +166,36 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const canWrite = () => {
     const st = get().state;
-    return st !== "PAUSED_BY_USER" && st !== "PAUSED" && st !== "ERROR" && st !== "WAITING_FOR_USER";
+    if (cme().conflict) return false;
+    return (
+      st !== "PAUSED_BY_USER" &&
+      st !== "PAUSED" &&
+      st !== "ERROR" &&
+      st !== "WAITING_FOR_USER" &&
+      st !== "CANCELLED"
+    );
+  };
+
+  const clearPromptTimer = () => {
+    if (promptTimer) clearTimeout(promptTimer);
+    promptTimer = null;
+  };
+
+  /** Clears every trace of a pending decision so the next utterance is fresh. */
+  const clearPendingContext = () => {
+    clearPromptTimer();
+    set({ prompt: null, interim: "" });
+  };
+
+  const armPromptTimeout = () => {
+    clearPromptTimer();
+    promptTimer = setTimeout(() => {
+      // Decision still open: stop capturing instead of blocking forever.
+      if (get().prompt) {
+        capture?.stop();
+        set({ state: "PAUSED", interim: "" });
+      }
+    }, PROMPT_TIMEOUT);
   };
 
   const groupRows = (index: ProductRow[], key: string) => index.filter((r) => r.groupKey === key);
@@ -179,6 +218,18 @@ export const useVoice = create<VoiceStore>((set, get) => {
         : null;
       const value = learned ? learned.correctedValue : w.value;
       cme().writePageValue(w.rowId, page, value, "VOICE_AI");
+      // Occupied cell → the store raised a REPLACE/ADD/CANCEL conflict; nothing
+      // was written yet, so no context or learning record may be created.
+      if (cme().conflict) {
+        pushEntry({
+          rawTranscript: u.rawTranscript,
+          normalizedTranscript: u.normalizedTranscript,
+          physicalPage: page,
+          outcome: "candidates",
+          detail: `${row?.label ?? w.rowId}: dolu hücre kararı bekleniyor`,
+        });
+        return;
+      }
       const columnId = cme().pages.pageColumns[page] ?? null;
       if (columnId) {
         voiceWrites.set(`${w.rowId}|${columnId}`, {
@@ -426,6 +477,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
         kind: productConfidence === "HIGH" ? "unit" : "product",
       },
     });
+    armPromptTimeout();
     pushEntry({
       rawTranscript: raw,
       normalizedTranscript: u.normalizedTranscript,
@@ -481,7 +533,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   /** Applies an explicit user decision: write, focus, learn, resume queue. */
   const commitChoice = async (prompt: CandidatePrompt, rowId: string, value: number) => {
-    set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
+    clearPendingContext();
+    set({ state: capture ? "LISTENING" : "IDLE" });
     const parsed = cme().parsed;
     if (!parsed) return;
     const catalogue = buildProductIndex(parsed);
@@ -642,15 +695,42 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     dismissPrompt: (unmatched = true) => {
       const prompt = get().prompt;
-      set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
+      clearPendingContext();
+      set({ state: capture ? "LISTENING" : "IDLE" });
       if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
+      void drain();
+    },
+
+    skipPrompt: () => {
+      const prompt = get().prompt;
+      if (!prompt) return;
+      clearPendingContext();
+      set({ state: capture ? "LISTENING" : "IDLE" });
+      pushEntry({
+        rawTranscript: prompt.utterance.rawTranscript,
+        normalizedTranscript: prompt.utterance.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "skipped",
+        detail: "atlandı",
+      });
+      void drain();
+    },
+
+    resumeQueue: () => {
+      if (get().state === "WAITING_FOR_USER" && !get().prompt) {
+        set({ state: capture ? "LISTENING" : "IDLE" });
+      }
       void drain();
     },
 
     cancelPrompt: () => {
       const prompt = get().prompt;
       if (!prompt) return;
-      set({ prompt: null, state: "PAUSED", interim: "" });
+      // Cancel clears every pending decision *and* any queued stale speech, so a
+      // later utterance can never inherit this context.
+      queue.length = 0;
+      clearPendingContext();
+      set({ state: "CANCELLED", queueLength: 0 });
       pushEntry({
         rawTranscript: prompt.utterance.rawTranscript,
         normalizedTranscript: prompt.utterance.normalizedTranscript,
@@ -658,6 +738,29 @@ export const useVoice = create<VoiceStore>((set, get) => {
         outcome: "ignored",
         detail: "kullanıcı iptal etti",
       });
+      setTimeout(() => {
+        if (get().state === "CANCELLED") set({ state: capture ? "LISTENING" : "PAUSED" });
+      }, 600);
+    },
+
+    toggleListening: () => {
+      const st = get().state;
+      if (st === "LISTENING" || st === "PROCESSING") {
+        get().pauseListening(false);
+        return;
+      }
+      if (st === "PAUSED" || st === "PAUSED_BY_USER" || st === "WAITING_FOR_USER" || st === "CANCELLED") {
+        // never resolves an open decision: only capture restarts
+        if (get().prompt) {
+          set({ error: null });
+          if (capture) capture.start(get().mode === "continuous");
+          else void get().startListening();
+          return;
+        }
+        get().resumeListening();
+        return;
+      }
+      void get().startListening();
     },
   };
 });
@@ -665,6 +768,10 @@ export const useVoice = create<VoiceStore>((set, get) => {
 /** Manual grid edits pause the voice engine immediately. */
 if (typeof window !== "undefined") {
   useCountMe.subscribe((state, prev) => {
+    // An occupied-cell decision blocks the queue; resume once it is answered.
+    if (prev.conflict && !state.conflict) {
+      setTimeout(() => useVoice.getState().resumeQueue(), 0);
+    }
     if (state.status === "PAUSED_BY_USER" && prev.status !== "PAUSED_BY_USER") {
       const v = useVoice.getState();
       if (v.state === "LISTENING" || v.state === "PROCESSING") v.pauseListening(true);

@@ -12,6 +12,7 @@ const stateLabel: Record<VoiceState, string> = {
   PAUSED: "BEKLİYOR",
   PAUSED_BY_USER: "KULLANICI MÜDAHALESİ",
   WAITING_FOR_USER: "SEÇİM BEKLENİYOR",
+  CANCELLED: "İPTAL EDİLDİ",
   ERROR: "HATA",
 };
 
