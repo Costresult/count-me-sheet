@@ -75,7 +75,7 @@ export function buildProductIndex(parsed: ParsedSheet | null): ProductRow[] {
       norm,
       tokens: tokenize(`${name} ${unitText}`),
       phon: phoneticKey(name),
-      unitInfo: detectRowUnit(normalizeText(`${unitText} ${name}`)),
+      unitInfo: detectRowUnit(normalizeText(unitText), normalizeText(name)),
       groupKey,
     });
   }
