@@ -200,6 +200,7 @@ function Section({ title, icon: Icon, items }: { title: string; icon: typeof Clo
 export function SidebarPanel() {
   const sessions = useCountMe((s) => s.sessions);
   const uploadFile = useCountMe((s) => s.uploadFile);
+  const setSidebarOpen = useCountMe((s) => s.setSidebarOpen);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const ongoing = sessions.filter((s) => s.status !== "COMPLETED");
@@ -220,7 +221,10 @@ export function SidebarPanel() {
           data-testid="sidebar-file-input"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) void uploadFile(f);
+            if (f) {
+              setSidebarOpen(false);
+              void uploadFile(f);
+            }
             e.target.value = "";
           }}
         />
