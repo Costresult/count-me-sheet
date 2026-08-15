@@ -336,6 +336,10 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const u = parseUtterance(raw);
     const parsed = cme().parsed;
     if (!parsed) return;
+    const catalogue = buildProductIndex(parsed);
+    if (u.additive && !u.productText && u.terms.length > 0) {
+      if (handleAdditive(u, catalogue)) return;
+    }
     if (!u.productText) {
       pushEntry({
         rawTranscript: raw,
@@ -347,7 +351,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       return;
     }
 
-    const index = buildProductIndex(parsed);
+    const index = catalogue;
     const match = matchProduct(index, u.productText, get().aliases);
 
     if (!match.best) {
@@ -407,6 +411,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
     set({
       state: "WAITING_FOR_USER",
       prompt: {
+        decisionId: uid("d"),
+        utteranceId: uid("u"),
         utterance: u,
         confidence: productConfidence,
         productConfidence,
