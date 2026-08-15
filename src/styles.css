@@ -63,20 +63,20 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
+  --background: oklch(0.975 0.006 140);
+  --foreground: oklch(0.22 0.02 160);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
+  --card-foreground: oklch(0.22 0.02 160);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.22 0.02 160);
+  --primary: oklch(0.52 0.13 168);
+  --primary-foreground: oklch(0.99 0.01 160);
+  --secondary: oklch(0.945 0.012 160);
+  --secondary-foreground: oklch(0.3 0.03 165);
+  --muted: oklch(0.95 0.008 160);
+  --muted-foreground: oklch(0.5 0.02 165);
+  --accent: oklch(0.9 0.05 168);
+  --accent-foreground: oklch(0.28 0.04 168);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(0.929 0.013 255.508);
@@ -95,6 +95,17 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+
+  /* Count Me grid tokens */
+  --grid-header: oklch(0.955 0.012 165);
+  --grid-stripe: oklch(0.985 0.004 165 / 70%);
+  --grid-stripe-solid: oklch(0.982 0.004 165);
+  --grid-total: oklch(0.955 0.02 95 / 55%);
+  --grid-total-header: oklch(0.93 0.035 95);
+  --grid-edit: oklch(0.96 0.04 168);
+  --grid-target: oklch(0.9 0.09 168);
+  --grid-row-flash: oklch(0.94 0.05 168 / 80%);
+  --grid-row-flash-solid: oklch(0.94 0.05 168);
 }
 
 .dark {
