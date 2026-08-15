@@ -171,9 +171,39 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const page = cme().pages.activePage;
     const names: string[] = [];
     for (const w of writes) {
-      cme().writePageValue(w.rowId, page, w.value, "VOICE_AI");
       const row = index.find((r) => r.rowId === w.rowId);
-      names.push(`${row?.label ?? w.rowId} = ${w.value}`);
+      const term = u.terms[0] ?? null;
+      // a repeated manual correction for the same row + spoken quantity wins
+      const learned = term
+        ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
+        : null;
+      const value = learned ? learned.correctedValue : w.value;
+      cme().writePageValue(w.rowId, page, value, "VOICE_AI");
+      const columnId = cme().pages.pageColumns[page] ?? null;
+      if (columnId) {
+        voiceWrites.set(`${w.rowId}|${columnId}`, {
+          rowId: w.rowId,
+          columnId,
+          rowLabel: row?.label ?? w.rowId,
+          value,
+          page,
+          spokenUnit: term?.spokenUnit ?? null,
+          spokenQuantity: term?.quantity ?? 0,
+          rawTranscript: u.rawTranscript,
+          normalizedTranscript: u.normalizedTranscript,
+        });
+      }
+      lastSafe = {
+        rowId: w.rowId,
+        rowLabel: row?.label ?? w.rowId,
+        page,
+        columnId,
+        value,
+        spokenUnit: term?.spokenUnit ?? null,
+        productText: u.productText,
+        timestamp: Date.now(),
+      };
+      names.push(`${row?.label ?? w.rowId} = ${value}${learned ? " (öğrenilen düzeltme)" : ""}`);
     }
     pushEntry({
       rawTranscript: u.rawTranscript,
@@ -182,6 +212,61 @@ export const useVoice = create<VoiceStore>((set, get) => {
       outcome: "written",
       detail: names.join(" · "),
     });
+  };
+
+  /** Current value of a cell in the working copy (edits win over the sheet). */
+  const currentValue = (rowId: string, columnId: string): number => {
+    const c = cme();
+    const key = `${rowId}::${columnId}`;
+    const edited = (c.edits as Record<string, number | null>)[key];
+    const raw =
+      edited !== undefined ? edited : c.parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
+    const n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  /** "+1", "artı 25 CL", "bir tane daha" → ADD to the last confirmed target. */
+  const handleAdditive = (u: ParsedUtterance, index: ProductRow[]): boolean => {
+    const ctx = lastSafe;
+    if (!ctx || Date.now() - ctx.timestamp > CONTEXT_TTL || !ctx.columnId) {
+      set({ error: `“${u.rawTranscript}” hangi ürün için? Önce ürünü söyleyin.` });
+      pushEntry({
+        rawTranscript: u.rawTranscript,
+        normalizedTranscript: u.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "ignored",
+        detail: "önceki güvenli hedef yok",
+      });
+      return true;
+    }
+    const row = index.find((r) => r.rowId === ctx.rowId);
+    if (!row) return false;
+    const d = resolveDestination([row], u);
+    const delta = d.writes[0]?.value ?? u.terms[0]?.quantity ?? 0;
+    if (!delta) return false;
+    const old = currentValue(ctx.rowId, ctx.columnId);
+    const next = round6(old + delta);
+    cme().writeInventoryValue(ctx.rowId, ctx.columnId, next, "VOICE_AI");
+    voiceWrites.set(`${ctx.rowId}|${ctx.columnId}`, {
+      rowId: ctx.rowId,
+      columnId: ctx.columnId,
+      rowLabel: ctx.rowLabel,
+      value: next,
+      page: ctx.page,
+      spokenUnit: u.terms[0]?.spokenUnit ?? null,
+      spokenQuantity: u.terms[0]?.quantity ?? 0,
+      rawTranscript: u.rawTranscript,
+      normalizedTranscript: u.normalizedTranscript,
+    });
+    lastSafe = { ...ctx, value: next, timestamp: Date.now() };
+    pushEntry({
+      rawTranscript: u.rawTranscript,
+      normalizedTranscript: u.normalizedTranscript,
+      physicalPage: ctx.page,
+      outcome: "written",
+      detail: `${ctx.rowLabel}: ${old} + ${delta} = ${next} (ekleme)`,
+    });
+    return true;
   };
 
   const toUnmatched = (u: ParsedUtterance, detail: string) => {
