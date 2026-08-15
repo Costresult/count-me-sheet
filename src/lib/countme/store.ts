@@ -535,6 +535,12 @@ export const useCountMe = create<CountMeState>((set, get) => {
           parsed,
           session.edits ?? {},
           session.addedColumns ?? [],
+          (session.unmatched ?? []).map((u) => ({
+            name: u.name,
+            unit: u.unit,
+            amount: u.amount,
+            columnId: session.pages ? session.pages.pageColumns[u.physicalPage] ?? null : null,
+          })),
         );
         download(blob.blob, outName(session.name || session.fileName));
         set({ busy: false, error: blob.warning });
