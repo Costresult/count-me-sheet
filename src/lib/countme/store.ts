@@ -323,6 +323,40 @@ export const useCountMe = create<CountMeState>((set, get) => {
     set({ history: [...history, event].slice(-1000) });
   };
 
+  /** Builds the xlsx from the working copy. `complete` marks the session COMPLETED. */
+  const runExport = async (complete: boolean) => {
+    const { originalFile, sheetName, parsed, edits, name, fileName, addedColumns, unmatched, pages } =
+      get();
+    if (!originalFile || !sheetName || !parsed) return;
+    set({ busy: true, error: null });
+    try {
+      const rows = unmatched.map((u) => ({
+        name: u.name,
+        unit: u.unit,
+        amount: u.amount,
+        columnId: pageColumnId(pages, u.physicalPage),
+      }));
+      const out = await exportWithEdits(
+        originalFile,
+        sheetName,
+        parsed,
+        edits,
+        addedColumns,
+        rows,
+      );
+      const base = (name ?? fileName ?? "envanter").replace(/\.xls[xm]$/i, "");
+      download(out.blob, complete ? `${base} - Count Me Completed.xlsx` : outName(base));
+      set({
+        busy: false,
+        error: out.warning,
+        ...(complete ? { status: "COMPLETED" as SessionStatus } : {}),
+      });
+      persist(true);
+    } catch (e) {
+      set({ busy: false, error: (e as Error).message });
+    }
+  };
+
   return {
     sessions: [],
     activeId: null,
