@@ -457,7 +457,14 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const push = (row: ProductRow, value: number, note: string, score: number) => {
       if (seen.has(row.rowId)) return;
       seen.add(row.rowId);
-      options.push({ rowId: row.rowId, label: optionLabel(row), score, value, note });
+      // options must preview the *normalized* number the cell will receive
+      options.push({
+        rowId: row.rowId,
+        label: optionLabel(row),
+        score,
+        value: finalizeValue(row.rowId, u, value, index),
+        note,
+      });
     };
 
     if (productConfidence === "HIGH") {
