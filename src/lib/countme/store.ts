@@ -1,9 +1,18 @@
 import { create } from "zustand";
-import { loadSession, saveSession, clearSession } from "./storage";
+import {
+  deleteSession as dbDelete,
+  getActiveId,
+  getSession,
+  listSessions,
+  renameSession as dbRename,
+  saveSession,
+  setActiveId,
+} from "./storage";
 import { exportWithEdits, loadWorkbook, parseSheet } from "./workbook";
 import {
   editKey,
   type ParsedSheet,
+  type SessionMeta,
   type SessionStatus,
   type SheetColumn,
   type StoredSession,
@@ -25,7 +34,12 @@ interface UndoEntry {
 }
 
 interface CountMeState {
+  sessions: SessionMeta[];
+  activeId: string | null;
+
   fileName: string | null;
+  name: string | null;
+  createdAt: number | null;
   originalFile: ArrayBuffer | null;
   sheetNames: string[];
   sheetName: string | null;
@@ -38,12 +52,20 @@ interface CountMeState {
   focus: FocusTarget | null;
   undoStack: UndoEntry[];
   savedAt: number | null;
+  sidebarOpen: boolean;
 
-  restore: () => Promise<void>;
+  init: () => Promise<void>;
+  refreshSessions: () => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
+  openSession: (id: string) => Promise<void>;
+  exitWorkspace: () => Promise<void>;
+  renameSession: (id: string, name: string) => Promise<void>;
+  removeSession: (id: string) => Promise<void>;
+  downloadSession: (id: string) => Promise<void>;
   selectSheet: (name: string) => Promise<void>;
   setStatus: (status: SessionStatus) => void;
   userInterrupt: () => void;
+  setSidebarOpen: (open: boolean) => void;
 
   writeInventoryValue: (rowId: string, columnId: string, value: number | null) => void;
   clearInventoryValue: (rowId: string, columnId: string) => void;
@@ -59,7 +81,6 @@ interface CountMeState {
   resetView: () => void;
 
   exportFile: () => Promise<void>;
-  resetSession: () => Promise<void>;
 }
 
 const emptyView = (): ViewPrefs => ({ columnWidths: {}, rowHeight: DEFAULT_ROW_HEIGHT });
@@ -67,41 +88,103 @@ const emptyView = (): ViewPrefs => ({ columnWidths: {}, rowHeight: DEFAULT_ROW_H
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let focusToken = 0;
 
+function download(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const outName = (name: string) => `${name.replace(/\.xls[xm]$/i, "")}-countme.xlsx`;
+
 export const useCountMe = create<CountMeState>((set, get) => {
-  const persist = (immediate = false) => {
-    const run = async () => {
-      const s = get();
-      if (!s.originalFile || !s.fileName) return;
-      const session: StoredSession = {
-        id: "active",
-        fileName: s.fileName,
-        originalFile: s.originalFile,
-        sheetName: s.sheetName,
-        status: s.status,
-        edits: s.edits,
-        view: s.view,
-        updatedAt: Date.now(),
-      };
-      await saveSession(session);
-      set({ savedAt: Date.now() });
+  const snapshot = (): StoredSession | null => {
+    const s = get();
+    if (!s.activeId || !s.originalFile || !s.fileName) return null;
+    return {
+      id: s.activeId,
+      name: s.name ?? s.fileName,
+      fileName: s.fileName,
+      originalFile: s.originalFile,
+      sheetName: s.sheetName,
+      status: s.status,
+      edits: s.edits,
+      view: s.view,
+      createdAt: s.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
     };
+  };
+
+  const flush = async () => {
+    const session = snapshot();
+    if (!session) return;
+    await saveSession(session);
+    set({ savedAt: session.updatedAt });
+    await get().refreshSessions();
+  };
+
+  const persist = (immediate = false) => {
+    if (saveTimer) clearTimeout(saveTimer);
     if (immediate) {
-      void run();
+      void flush();
       return;
     }
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => void run(), 400);
+    saveTimer = setTimeout(() => void flush(), 400);
   };
 
-  const openSheet = async (buffer: ArrayBuffer, name: string) => {
-    const wb = await loadWorkbook(buffer);
-    const ws = wb.getWorksheet(name);
-    if (!ws) throw new Error("Çalışma sayfası okunamadı");
-    return parseSheet(ws);
+  const applySession = async (session: StoredSession) => {
+    const wb = await loadWorkbook(session.originalFile);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const names: string[] = wb.worksheets.map((ws: any) => ws.name as string);
+    const sheetName = session.sheetName ?? names[0] ?? null;
+    const parsed = sheetName ? parseSheet(wb.getWorksheet(sheetName)) : null;
+    set({
+      activeId: session.id,
+      name: session.name,
+      fileName: session.fileName,
+      createdAt: session.createdAt,
+      originalFile: session.originalFile,
+      sheetNames: names,
+      sheetName,
+      parsed,
+      edits: session.edits ?? {},
+      view: session.view ?? emptyView(),
+      status: session.status === "RUNNING" ? "PAUSED" : session.status,
+      undoStack: [],
+      focus: null,
+      busy: false,
+      error: null,
+      savedAt: session.updatedAt,
+    });
+    await setActiveId(session.id);
   };
+
+  const clearActive = () =>
+    set({
+      activeId: null,
+      name: null,
+      fileName: null,
+      createdAt: null,
+      originalFile: null,
+      sheetNames: [],
+      sheetName: null,
+      parsed: null,
+      edits: {},
+      undoStack: [],
+      view: emptyView(),
+      status: "IDLE",
+      focus: null,
+      savedAt: null,
+    });
 
   return {
+    sessions: [],
+    activeId: null,
     fileName: null,
+    name: null,
+    createdAt: null,
     originalFile: null,
     sheetNames: [],
     sheetName: null,
@@ -114,29 +197,21 @@ export const useCountMe = create<CountMeState>((set, get) => {
     focus: null,
     undoStack: [],
     savedAt: null,
+    sidebarOpen: false,
 
-    restore: async () => {
+    refreshSessions: async () => {
+      set({ sessions: await listSessions() });
+    },
+
+    init: async () => {
       try {
-        const session = await loadSession();
+        await get().refreshSessions();
+        const activeId = await getActiveId();
+        if (!activeId) return;
+        const session = await getSession(activeId);
         if (!session) return;
         set({ busy: true });
-        const wb = await loadWorkbook(session.originalFile);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const names = wb.worksheets.map((ws: any) => ws.name as string);
-        const sheetName = session.sheetName ?? names[0] ?? null;
-        const parsed = sheetName ? parseSheet(wb.getWorksheet(sheetName)) : null;
-        set({
-          fileName: session.fileName,
-          originalFile: session.originalFile,
-          sheetNames: names,
-          sheetName,
-          parsed,
-          edits: session.edits ?? {},
-          view: session.view ?? emptyView(),
-          status: session.status === "RUNNING" ? "PAUSED" : session.status,
-          busy: false,
-          savedAt: session.updatedAt,
-        });
+        await applySession(session);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
       }
@@ -148,28 +223,96 @@ export const useCountMe = create<CountMeState>((set, get) => {
         if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
           throw new Error("Desteklenmeyen dosya türü. Lütfen .xlsx veya .xlsm dosyası seçin.");
         }
+        await flush(); // auto-save the session we are leaving
         const buffer = await file.arrayBuffer();
         const wb = await loadWorkbook(buffer);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const names: string[] = wb.worksheets.map((ws: any) => ws.name as string);
         if (names.length === 0) throw new Error("Çalışma kitabında sayfa bulunamadı");
-        const sheetName = names[0]!;
-        const parsed = parseSheet(wb.getWorksheet(sheetName));
-        set({
+        const now = Date.now();
+        const session: StoredSession = {
+          id: `s${now}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name.replace(/\.xls[xm]$/i, ""),
           fileName: file.name,
           originalFile: buffer,
-          sheetNames: names,
-          sheetName,
-          parsed,
-          edits: {},
-          undoStack: [],
-          view: emptyView(),
+          sheetName: names[0]!,
           status: "IDLE",
-          busy: false,
-          error: null,
-          focus: null,
-        });
-        persist(true);
+          edits: {},
+          view: emptyView(),
+          createdAt: now,
+          updatedAt: now,
+        };
+        await saveSession(session);
+        await applySession(session);
+        await get().refreshSessions();
+      } catch (e) {
+        set({ busy: false, error: (e as Error).message });
+      }
+    },
+
+    openSession: async (id) => {
+      if (get().activeId === id) {
+        set({ sidebarOpen: false });
+        return;
+      }
+      set({ busy: true, error: null });
+      try {
+        await flush();
+        const session = await getSession(id);
+        if (!session) throw new Error("Envanter bulunamadı");
+        await applySession(session);
+        set({ sidebarOpen: false });
+        await get().refreshSessions();
+      } catch (e) {
+        set({ busy: false, error: (e as Error).message });
+      }
+    },
+
+    exitWorkspace: async () => {
+      await flush();
+      await setActiveId(null);
+      clearActive();
+      await get().refreshSessions();
+    },
+
+    renameSession: async (id, name) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      if (get().activeId === id) {
+        set({ name: trimmed });
+        await flush();
+      } else {
+        await dbRename(id, trimmed);
+      }
+      await get().refreshSessions();
+    },
+
+    removeSession: async (id) => {
+      await dbDelete(id);
+      if (get().activeId === id) clearActive();
+      await get().refreshSessions();
+    },
+
+    downloadSession: async (id) => {
+      set({ busy: true, error: null });
+      try {
+        const current = get();
+        let session = await getSession(id);
+        if (current.activeId === id) {
+          const live = snapshot();
+          if (live) session = live;
+        }
+        if (!session || !session.sheetName) throw new Error("Envanter bulunamadı");
+        const wb = await loadWorkbook(session.originalFile);
+        const parsed = parseSheet(wb.getWorksheet(session.sheetName));
+        const blob = await exportWithEdits(
+          session.originalFile,
+          session.sheetName,
+          parsed,
+          session.edits ?? {},
+        );
+        download(blob, outName(session.name || session.fileName));
+        set({ busy: false });
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
       }
@@ -180,8 +323,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
       if (!originalFile) return;
       set({ busy: true });
       try {
-        const parsed = await openSheet(originalFile, name);
-        set({ sheetName: name, parsed, busy: false, view: emptyView() });
+        const wb = await loadWorkbook(originalFile);
+        const ws = wb.getWorksheet(name);
+        if (!ws) throw new Error("Çalışma sayfası okunamadı");
+        set({ sheetName: name, parsed: parseSheet(ws), busy: false, view: emptyView() });
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
@@ -190,7 +335,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
 
     setStatus: (status) => {
       set({ status });
-      persist();
+      persist(true);
     },
 
     userInterrupt: () => {
@@ -200,14 +345,15 @@ export const useCountMe = create<CountMeState>((set, get) => {
       }
     },
 
+    setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
     writeInventoryValue: (rowId, columnId, value) => {
       const { edits, parsed, undoStack, status } = get();
       const col = parsed?.columns.find((c) => c.id === columnId);
       if (!col || col.kind === "total") return;
       const key = editKey(rowId, columnId);
-      const next = { ...edits, [key]: value };
       set({
-        edits: next,
+        edits: { ...edits, [key]: value },
         undoStack: [...undoStack, { rowId, columnId, previous: edits[key] }].slice(-200),
         ...(status === "RUNNING" ? { status: "PAUSED_BY_USER" as SessionStatus } : {}),
       });
@@ -276,40 +422,17 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     exportFile: async () => {
-      const { originalFile, sheetName, parsed, edits, fileName } = get();
+      const { originalFile, sheetName, parsed, edits, name, fileName } = get();
       if (!originalFile || !sheetName || !parsed) return;
       set({ busy: true });
       try {
         const blob = await exportWithEdits(originalFile, sheetName, parsed, edits);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        const base = (fileName ?? "envanter").replace(/\.xlsx?$/i, "");
-        a.download = `${base}-countme.xlsx`;
-        a.click();
-        URL.revokeObjectURL(url);
+        download(blob, outName(name ?? fileName ?? "envanter"));
         set({ busy: false, status: "COMPLETED" });
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
       }
-    },
-
-    resetSession: async () => {
-      await clearSession();
-      set({
-        fileName: null,
-        originalFile: null,
-        sheetNames: [],
-        sheetName: null,
-        parsed: null,
-        edits: {},
-        undoStack: [],
-        view: emptyView(),
-        status: "IDLE",
-        focus: null,
-        savedAt: null,
-      });
     },
   };
 });
