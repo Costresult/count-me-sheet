@@ -9,8 +9,11 @@ import {
   setActiveId,
 } from "./storage";
 import { exportWithEdits, loadWorkbook, parseSheet } from "./workbook";
+import { derivePages, MAX_PAGES, pageColumnId } from "./pages";
 import {
   editKey,
+  emptyPages,
+  type PageState,
   type ParsedSheet,
   type SessionMeta,
   type SessionStatus,
@@ -52,6 +55,17 @@ interface UndoEntry {
   previous: number | null | undefined;
 }
 
+export type WriteSource = "USER" | "SYSTEM";
+
+export interface WriteConflict {
+  rowId: string;
+  page: number;
+  columnId: string;
+  existing: number | string;
+  value: number | null;
+  source: WriteSource;
+}
+
 interface CountMeState {
   sessions: SessionMeta[];
   activeId: string | null;
@@ -73,6 +87,10 @@ interface CountMeState {
   undoStack: UndoEntry[];
   savedAt: number | null;
   sidebarOpen: boolean;
+  pages: PageState;
+  pageFeedback: string | null;
+  conflict: WriteConflict | null;
+  mappingOpen: boolean;
 
   init: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -92,6 +110,22 @@ interface CountMeState {
   clearInventoryValue: (rowId: string, columnId: string) => void;
   undoLast: () => void;
 
+  // physical page engine
+  setActivePage: (page: number) => void;
+  nextPage: () => void;
+  previousPage: () => void;
+  getActivePage: () => number;
+  setPageCount: (count: number) => void;
+  setPageColumn: (page: number, columnId: string | null) => void;
+  setMappingOpen: (open: boolean) => void;
+  writePageValue: (
+    rowId: string,
+    page: number,
+    value: number | null,
+    source?: WriteSource,
+  ) => void;
+  resolveConflict: (accept: boolean) => void;
+
   focusProductRow: (rowId: string) => void;
   focusCell: (rowId: string, columnId: string) => void;
   clearFocus: (token: number) => void;
@@ -108,6 +142,7 @@ const emptyView = (): ViewPrefs => ({ columnWidths: {}, rowHeight: DEFAULT_ROW_H
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let focusToken = 0;
+let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -133,6 +168,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       status: s.status,
       edits: s.edits,
       view: s.view,
+      pages: s.pages,
       createdAt: s.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
@@ -172,6 +208,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
       parsed,
       edits: session.edits ?? {},
       view: session.view ?? emptyView(),
+      pages: derivePages(parsed, session.pages),
+      conflict: null,
+      pageFeedback: null,
+      mappingOpen: false,
       status: session.status === "RUNNING" ? "PAUSED" : session.status,
       undoStack: [],
       focus: null,
@@ -198,6 +238,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
       status: "IDLE",
       focus: null,
       savedAt: null,
+      pages: emptyPages(),
+      conflict: null,
+      pageFeedback: null,
+      mappingOpen: false,
     });
 
   return {
@@ -220,6 +264,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
     undoStack: [],
     savedAt: null,
     sidebarOpen: false,
+    pages: emptyPages(),
+    pageFeedback: null,
+    conflict: null,
+    mappingOpen: false,
 
     refreshSessions: async () => {
       set({ sessions: await listSessions() });
