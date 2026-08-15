@@ -45,6 +45,23 @@ export interface ViewPrefs {
   rowHeight: number;
 }
 
+/** Physical counting page -> Excel count column mapping (page numbers are 1-based). */
+export type PageColumnMap = Record<number, string | null>;
+
+export interface PageState {
+  activePage: number;
+  pageCount: number;
+  pageColumns: PageColumnMap;
+  lastActiveRow: string | null;
+}
+
+export const emptyPages = (): PageState => ({
+  activePage: 1,
+  pageCount: 1,
+  pageColumns: {},
+  lastActiveRow: null,
+});
+
 export interface StoredSession {
   id: string;
   name: string;
@@ -54,6 +71,7 @@ export interface StoredSession {
   status: SessionStatus;
   edits: Record<string, number | null>;
   view: ViewPrefs;
+  pages?: PageState;
   createdAt: number;
   updatedAt: number;
 }

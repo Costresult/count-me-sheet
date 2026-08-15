@@ -9,8 +9,11 @@ import {
   setActiveId,
 } from "./storage";
 import { exportWithEdits, loadWorkbook, parseSheet } from "./workbook";
+import { derivePages, MAX_PAGES, pageColumnId } from "./pages";
 import {
   editKey,
+  emptyPages,
+  type PageState,
   type ParsedSheet,
   type SessionMeta,
   type SessionStatus,
@@ -52,6 +55,17 @@ interface UndoEntry {
   previous: number | null | undefined;
 }
 
+export type WriteSource = "USER" | "SYSTEM";
+
+export interface WriteConflict {
+  rowId: string;
+  page: number;
+  columnId: string;
+  existing: number | string;
+  value: number | null;
+  source: WriteSource;
+}
+
 interface CountMeState {
   sessions: SessionMeta[];
   activeId: string | null;
@@ -73,6 +87,10 @@ interface CountMeState {
   undoStack: UndoEntry[];
   savedAt: number | null;
   sidebarOpen: boolean;
+  pages: PageState;
+  pageFeedback: string | null;
+  conflict: WriteConflict | null;
+  mappingOpen: boolean;
 
   init: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -92,6 +110,22 @@ interface CountMeState {
   clearInventoryValue: (rowId: string, columnId: string) => void;
   undoLast: () => void;
 
+  // physical page engine
+  setActivePage: (page: number) => void;
+  nextPage: () => void;
+  previousPage: () => void;
+  getActivePage: () => number;
+  setPageCount: (count: number) => void;
+  setPageColumn: (page: number, columnId: string | null) => void;
+  setMappingOpen: (open: boolean) => void;
+  writePageValue: (
+    rowId: string,
+    page: number,
+    value: number | null,
+    source?: WriteSource,
+  ) => void;
+  resolveConflict: (accept: boolean) => void;
+
   focusProductRow: (rowId: string) => void;
   focusCell: (rowId: string, columnId: string) => void;
   clearFocus: (token: number) => void;
@@ -108,6 +142,7 @@ const emptyView = (): ViewPrefs => ({ columnWidths: {}, rowHeight: DEFAULT_ROW_H
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let focusToken = 0;
+let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -133,6 +168,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       status: s.status,
       edits: s.edits,
       view: s.view,
+      pages: s.pages,
       createdAt: s.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
@@ -172,6 +208,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
       parsed,
       edits: session.edits ?? {},
       view: session.view ?? emptyView(),
+      pages: derivePages(parsed, session.pages),
+      conflict: null,
+      pageFeedback: null,
+      mappingOpen: false,
       status: session.status === "RUNNING" ? "PAUSED" : session.status,
       undoStack: [],
       focus: null,
@@ -198,6 +238,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
       status: "IDLE",
       focus: null,
       savedAt: null,
+      pages: emptyPages(),
+      conflict: null,
+      pageFeedback: null,
+      mappingOpen: false,
     });
 
   return {
@@ -220,6 +264,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
     undoStack: [],
     savedAt: null,
     sidebarOpen: false,
+    pages: emptyPages(),
+    pageFeedback: null,
+    conflict: null,
+    mappingOpen: false,
 
     refreshSessions: async () => {
       set({ sessions: await listSessions() });
@@ -378,7 +426,15 @@ export const useCountMe = create<CountMeState>((set, get) => {
         const wb = await loadWorkbook(originalFile);
         const ws = wb.getWorksheet(name);
         if (!ws) throw new Error("Çalışma sayfası okunamadı");
-        set({ sheetName: name, parsed: parseSheet(ws), busy: false, view: emptyView() });
+        const parsed = parseSheet(ws);
+        set({
+          sheetName: name,
+          parsed,
+          busy: false,
+          view: emptyView(),
+          pages: derivePages(parsed),
+          conflict: null,
+        });
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
@@ -415,6 +471,91 @@ export const useCountMe = create<CountMeState>((set, get) => {
 
     clearInventoryValue: (rowId, columnId) => {
       get().writeInventoryValue(rowId, columnId, null);
+    },
+
+    // ---------- physical page engine ----------
+
+    getActivePage: () => get().pages.activePage,
+
+    setMappingOpen: (open) => set({ mappingOpen: open }),
+
+    setActivePage: (page) => {
+      const { pages } = get();
+      const next = Math.min(Math.max(1, Math.round(page)), pages.pageCount);
+      if (next === pages.activePage) return;
+      set({ pages: { ...pages, activePage: next }, pageFeedback: `Sayfa ${next} aktif` });
+      if (feedbackTimer) clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => set({ pageFeedback: null }), 1600);
+      persist();
+    },
+
+    nextPage: () => get().setActivePage(get().pages.activePage + 1),
+    previousPage: () => get().setActivePage(get().pages.activePage - 1),
+
+    setPageCount: (count) => {
+      const { pages, parsed } = get();
+      const target = Math.min(MAX_PAGES, Math.max(1, Math.round(count)));
+      const next = derivePages(parsed, { ...pages, pageCount: target });
+      set({ pages: next });
+      persist();
+    },
+
+    setPageColumn: (page, columnId) => {
+      const { pages, parsed } = get();
+      const col = columnId ? parsed?.columns.find((c) => c.id === columnId) : null;
+      if (columnId && (!col || col.kind === "total")) return;
+      const pageColumns = { ...pages.pageColumns };
+      // a column can only belong to one physical page
+      if (columnId) {
+        for (const key of Object.keys(pageColumns)) {
+          const p = Number(key);
+          if (p !== page && pageColumns[p] === columnId) pageColumns[p] = null;
+        }
+      }
+      pageColumns[page] = columnId;
+      set({ pages: { ...pages, pageColumns } });
+      persist();
+    },
+
+    writePageValue: (rowId, page, value, source = "USER") => {
+      const { pages, parsed, edits } = get();
+      const columnId = pageColumnId(pages, page);
+      if (!columnId) {
+        set({ error: `Sayfa ${page} için sayım kolonu eşlenmemiş. Lütfen mapping yapın.`, mappingOpen: true });
+        return;
+      }
+      const row = parsed?.rows.find((r) => r.id === rowId);
+      const col = parsed?.columns.find((c) => c.id === columnId);
+      if (!row || !col || col.kind === "total") return;
+      const key = editKey(rowId, columnId);
+      const edited = edits[key];
+      const current = edited === undefined ? row.cells[columnId]?.value ?? null : edited;
+      const occupied = current !== null && current !== undefined && String(current).trim() !== "";
+      if (source === "SYSTEM" && occupied && current !== value) {
+        set({
+          conflict: {
+            rowId,
+            page,
+            columnId,
+            existing: current as number | string,
+            value,
+            source,
+          },
+        });
+        get().focusCell(rowId, columnId);
+        return;
+      }
+      set({ pages: { ...pages, lastActiveRow: rowId } });
+      get().writeInventoryValue(rowId, columnId, value);
+    },
+
+    resolveConflict: (accept) => {
+      const c = get().conflict;
+      set({ conflict: null });
+      if (!c || !accept) return;
+      const { pages } = get();
+      set({ pages: { ...pages, lastActiveRow: c.rowId } });
+      get().writeInventoryValue(c.rowId, c.columnId, c.value);
     },
 
     undoLast: () => {
