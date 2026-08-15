@@ -17,6 +17,21 @@ export interface UnitResolution {
 
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
+export type UnitConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export interface DestinationOption {
+  row: ProductRow;
+  value: number;
+  note: string;
+}
+
+export interface Destination {
+  writes: ResolvedWrite[];
+  confidence: UnitConfidence;
+  options: DestinationOption[];
+  reason: string;
+}
+
 const COUNT_UNITS: UnitCode[] = ["ADET", "SISE", "KOLI", "PAKET", "FICI"];
 
 const rowsWithUnit = (rows: ProductRow[], unit: UnitCode) =>
@@ -169,4 +184,157 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
   if (!res) return { writes: [], ambiguousRows: rows, reason: "belirsiz" };
   if ("ambiguous" in res) return { writes: [], ambiguousRows: res.ambiguous, reason: "belirsiz" };
   return { writes: [res], ambiguousRows: null, reason: res.note };
+}
+
+/* ------------------------------------------------------------------ *
+ * Strict destination resolution.
+ * Product identity is NEVER enough: the unit / package row must also be
+ * unambiguous, otherwise the caller has to ask the user.
+ * ------------------------------------------------------------------ */
+
+type Kind = "exact" | "package" | "convert" | "weak";
+
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+
+function classify(
+  row: ProductRow,
+  term: SpokenTerm,
+): { kind: Kind; value: number; note: string } | null {
+  const info = row.unitInfo;
+  const unit = term.unit;
+  const q = term.quantity;
+
+  if (!unit) {
+    // no spoken unit: nothing is a strong signal
+    return { kind: "weak", value: round(q), note: info.unit ? unitLabelNote(info.unit) : "birimsiz" };
+  }
+
+  // package/size interpretation: "25 gram" -> one "PAKET 25 GR".
+  // Only rows counted in packages/bottles can absorb this reading; a KILOGRAM
+  // row is a real weight row even when its name mentions a package size.
+  const fam = familyOf(unit);
+  const packageRow = info.unit !== null && familyOf(info.unit) === "count";
+  if (packageRow && fam === "weight" && info.sizeGr !== null && near(toGram(q, unit), info.sizeGr)) {
+    return { kind: "package", value: 1, note: `1 × ${info.sizeGr} gr paket` };
+  }
+  if (packageRow && fam === "volume" && info.sizeCl !== null && near(toCl(q, unit), info.sizeCl)) {
+    return { kind: "package", value: 1, note: `1 × ${info.sizeCl} cl` };
+  }
+
+  if (info.unit === unit) return { kind: "exact", value: round(q), note: unitLabelNote(unit) };
+
+  if (info.unit && familyOf(info.unit) === fam) {
+    if (fam === "weight") {
+      const g = toGram(q, unit);
+      return info.unit === "KG"
+        ? { kind: "convert", value: round(g / 1000), note: "gram→kg" }
+        : { kind: "convert", value: round(g), note: "kg→gram" };
+    }
+    if (fam === "volume") {
+      const cl = toCl(q, unit);
+      return info.unit === "L"
+        ? { kind: "convert", value: round(cl / 100), note: "cl→litre" }
+        : { kind: "convert", value: round(cl), note: "litre→cl" };
+    }
+    return { kind: "convert", value: round(q), note: unitLabelNote(info.unit) };
+  }
+
+  // a spoken count unit landing on a sized bottle row of the right shape
+  if (unit === "SISE" && info.unit === "SISE") return { kind: "exact", value: round(q), note: "şişe" };
+  if (unit === "ADET" && info.unit === "SISE" && info.sizeCl !== null)
+    return { kind: "weak", value: round(q), note: "adet→şişe" };
+
+  return null;
+}
+
+function unitLabelNote(u: UnitCode): string {
+  return u;
+}
+
+/** Resolves where a single-term utterance must be written, with confidence. */
+export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Destination {
+  if (rows.length === 0) return { writes: [], confidence: "LOW", options: [], reason: "satır yok" };
+  if (u.terms.length === 0)
+    return { writes: [], confidence: "LOW", options: [], reason: "miktar yok" };
+
+  if (u.operation !== "single" || u.terms.length > 1) {
+    const legacy = resolveUnitDestination(rows, u);
+    if (legacy.writes.length > 0)
+      return { writes: legacy.writes, confidence: "HIGH", options: [], reason: legacy.reason };
+    const opts = (legacy.ambiguousRows ?? rows).map((r) => ({
+      row: r,
+      value: round(u.terms[0]!.quantity),
+      note: r.unitText || "",
+    }));
+    return { writes: [], confidence: "LOW", options: opts, reason: legacy.reason };
+  }
+
+  const term = u.terms[0]!;
+  const scored = rows
+    .map((r) => {
+      const c = classify(r, term);
+      return c ? { row: r, ...c } : null;
+    })
+    .filter((x): x is { row: ProductRow; kind: Kind; value: number; note: string } => x !== null);
+
+  const exact = scored.filter((s) => s.kind === "exact");
+  const pack = scored.filter((s) => s.kind === "package");
+  const conv = scored.filter((s) => s.kind === "convert");
+
+  const asOptions = (list: typeof scored) =>
+    list.map((s) => ({ row: s.row, value: s.value, note: s.note }));
+
+  // single candidate row overall: the destination cannot be mistaken
+  if (rows.length === 1 && scored.length === 1) {
+    const s = scored[0]!;
+    return {
+      writes: [{ rowId: s.row.rowId, value: s.value, note: s.note }],
+      confidence: "HIGH",
+      options: [],
+      reason: s.note,
+    };
+  }
+
+  if (exact.length === 1 && pack.length === 0) {
+    const s = exact[0]!;
+    return {
+      writes: [{ rowId: s.row.rowId, value: s.value, note: s.note }],
+      confidence: "HIGH",
+      options: [],
+      reason: s.note,
+    };
+  }
+
+  if (pack.length === 1 && exact.length === 0 && conv.length === 0) {
+    const s = pack[0]!;
+    return {
+      writes: [{ rowId: s.row.rowId, value: s.value, note: s.note }],
+      confidence: "HIGH",
+      options: [],
+      reason: s.note,
+    };
+  }
+
+  if (exact.length === 0 && pack.length === 0 && conv.length === 1) {
+    const s = conv[0]!;
+    return {
+      writes: [{ rowId: s.row.rowId, value: s.value, note: s.note }],
+      confidence: "HIGH",
+      options: [],
+      reason: s.note,
+    };
+  }
+
+  const strong = [...exact, ...pack, ...conv];
+  const options = strong.length > 0 ? asOptions(strong) : asOptions(scored);
+  const fallback =
+    options.length > 0
+      ? options
+      : rows.map((r) => ({ row: r, value: round(term.quantity), note: r.unitText || "" }));
+  return {
+    writes: [],
+    confidence: strong.length > 0 ? "MEDIUM" : "LOW",
+    options: fallback.slice(0, 6),
+    reason: "birim belirsiz",
+  };
 }

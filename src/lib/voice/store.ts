@@ -4,7 +4,7 @@ import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
 import { candidateGroups, matchProduct, type MatchConfidence } from "./matcher";
-import { resolveUnitDestination } from "./unitResolver";
+import { resolveDestination, type UnitConfidence } from "./unitResolver";
 import {
   learnAlias,
   listAliases,
@@ -21,6 +21,7 @@ export type VoiceState =
   | "PROCESSING"
   | "PAUSED"
   | "PAUSED_BY_USER"
+  | "WAITING_FOR_USER"
   | "ERROR";
 
 export type MicMode = "continuous" | "push";
@@ -40,11 +41,18 @@ export interface CandidateOption {
   rowId: string;
   label: string;
   score: number;
+  value: number;
+  note: string;
 }
 
 export interface CandidatePrompt {
   utterance: ParsedUtterance;
   confidence: MatchConfidence;
+  productConfidence: MatchConfidence;
+  unitConfidence: UnitConfidence;
+  productScore: number;
+  productLabel: string | null;
+  question: string;
   options: CandidateOption[];
   aiBestRowId: string | null;
   kind: "product" | "unit";
@@ -75,6 +83,8 @@ interface VoiceStore {
   /** Feeds a transcript into the engine (mic or automated tests). */
   ingestTranscript: (text: string) => void;
   chooseCandidate: (index: number) => Promise<void>;
+  /** Explicit row pick from the stock search inside the popup. */
+  chooseRow: (rowId: string) => Promise<void>;
   dismissPrompt: (toUnmatched?: boolean) => void;
 }
 
@@ -85,6 +95,15 @@ const queue: string[] = [];
 let draining = false;
 
 export const useVoice = create<VoiceStore>((set, get) => {
+  // deterministic test hook: feed a transcript without a microphone
+  if (typeof window !== "undefined") {
+    (window as unknown as { __countmeVoice?: unknown }).__countmeVoice = {
+      ingest: (t: string) => get().ingestTranscript(t),
+      state: () => get().state,
+      queue: () => get().queueLength,
+    };
+  }
+
   const cme = () => useCountMe.getState();
 
   const pushEntry = (e: Omit<TranscriptEntry, "id" | "timestamp" | "sessionId">) => {
@@ -99,7 +118,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const canWrite = () => {
     const st = get().state;
-    return st !== "PAUSED_BY_USER" && st !== "PAUSED" && st !== "ERROR";
+    return st !== "PAUSED_BY_USER" && st !== "PAUSED" && st !== "ERROR" && st !== "WAITING_FOR_USER";
   };
 
   const groupRows = (index: ProductRow[], key: string) => index.filter((r) => r.groupKey === key);
@@ -208,66 +227,83 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const index = buildProductIndex(parsed);
     const match = matchProduct(index, u.productText, get().aliases);
 
-    if (!match.best || match.confidence === "LOW") {
-      toUnmatched(u, `düşük eşleşme (${match.best ? match.best.row.name : "yok"})`);
+    if (!match.best) {
+      toUnmatched(u, "eşleşme bulunamadı");
       return;
     }
 
-    if (match.confidence === "MEDIUM") {
-      const groups = candidateGroups(match.candidates).slice(0, 5);
-      set({
-        prompt: {
-          utterance: u,
-          confidence: match.confidence,
-          options: groups.map((g) => ({
-            rowId: g.row.rowId,
-            label: optionLabel(g.row),
-            score: g.score,
-          })),
-          aiBestRowId: match.best.row.rowId,
-          kind: "product",
-        },
-      });
-      pushEntry({
-        rawTranscript: raw,
-        normalizedTranscript: u.normalizedTranscript,
-        physicalPage: cme().pages.activePage,
-        outcome: "candidates",
-        detail: "ürün seçimi bekleniyor",
-      });
+    const productConfidence = match.confidence;
+    const bestRows = groupRows(index, match.best.row.groupKey);
+    const destination = resolveDestination(bestRows, u);
+
+    // STRICT GATE: product HIGH *and* unit/package HIGH – otherwise ask.
+    if (
+      productConfidence === "HIGH" &&
+      destination.confidence === "HIGH" &&
+      destination.writes.length > 0
+    ) {
+      applyWrites(destination.writes, u, index);
       return;
     }
 
-    const rows = groupRows(index, match.best.row.groupKey);
-    const resolution = resolveUnitDestination(rows, u);
-    if (resolution.writes.length > 0) {
-      applyWrites(resolution.writes, u, index);
+    const options: CandidateOption[] = [];
+    const seen = new Set<string>();
+    const push = (row: ProductRow, value: number, note: string, score: number) => {
+      if (seen.has(row.rowId)) return;
+      seen.add(row.rowId);
+      options.push({ rowId: row.rowId, label: optionLabel(row), score, value, note });
+    };
+
+    if (productConfidence === "HIGH") {
+      for (const o of destination.options) push(o.row, o.value, o.note, match.best.score);
+      if (options.length === 0) for (const r of bestRows) push(r, u.terms[0]?.quantity ?? 0, r.unitText, match.best.score);
+    } else {
+      for (const c of candidateGroups(match.candidates).slice(0, 4)) {
+        const rows = groupRows(index, c.row.groupKey);
+        const d = resolveDestination(rows, u);
+        if (d.writes.length > 0) {
+          const w = d.writes[0]!;
+          const row = index.find((r) => r.rowId === w.rowId) ?? c.row;
+          push(row, w.value, w.note, c.score);
+        } else if (d.options.length > 0) {
+          for (const o of d.options.slice(0, 2)) push(o.row, o.value, o.note, c.score);
+        } else {
+          push(c.row, u.terms[0]?.quantity ?? 0, c.row.unitText, c.score);
+        }
+      }
+    }
+
+    if (options.length === 0) {
+      toUnmatched(u, "hedef satır bulunamadı");
       return;
     }
-    if (resolution.ambiguousRows && resolution.ambiguousRows.length > 0) {
-      set({
-        prompt: {
-          utterance: u,
-          confidence: match.confidence,
-          options: resolution.ambiguousRows.slice(0, 5).map((r) => ({
-            rowId: r.rowId,
-            label: optionLabel(r),
-            score: 0,
-          })),
-          aiBestRowId: match.best.row.rowId,
-          kind: "unit",
-        },
-      });
-      pushEntry({
-        rawTranscript: raw,
-        normalizedTranscript: u.normalizedTranscript,
-        physicalPage: cme().pages.activePage,
-        outcome: "candidates",
-        detail: "birim seçimi bekleniyor",
-      });
-      return;
-    }
-    toUnmatched(u, resolution.reason);
+
+    // Focus the first candidate so the user can inspect the Excel row.
+    cme().focusProductRow(options[0]!.rowId);
+
+    set({
+      state: "WAITING_FOR_USER",
+      prompt: {
+        utterance: u,
+        confidence: productConfidence,
+        productConfidence,
+        unitConfidence: destination.confidence,
+        productScore: match.best.score,
+        productLabel: productConfidence === "HIGH" ? match.best.row.name : null,
+        question:
+          productConfidence === "HIGH" ? "Nereye yazayım?" : "Hangi ürün ve satır?",
+        options,
+        aiBestRowId: match.best.row.rowId,
+        kind: productConfidence === "HIGH" ? "unit" : "product",
+      },
+    });
+    pushEntry({
+      rawTranscript: raw,
+      normalizedTranscript: u.normalizedTranscript,
+      physicalPage: cme().pages.activePage,
+      outcome: "candidates",
+      detail: productConfidence === "HIGH" ? "birim seçimi bekleniyor" : "ürün seçimi bekleniyor",
+    });
   };
 
   const drain = async () => {
@@ -312,6 +348,46 @@ export const useVoice = create<VoiceStore>((set, get) => {
       },
     });
     return capture;
+  };
+
+  /** Applies an explicit user decision: write, focus, learn, resume queue. */
+  const commitChoice = async (prompt: CandidatePrompt, rowId: string, value: number) => {
+    set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
+    const parsed = cme().parsed;
+    if (!parsed) return;
+    const catalogue = buildProductIndex(parsed);
+    const row = catalogue.find((r) => r.rowId === rowId);
+    if (!row) return;
+    const u = prompt.utterance;
+
+    cme().focusProductRow(row.rowId);
+    applyWrites([{ rowId: row.rowId, value, note: "kullanıcı seçimi" }], u, catalogue);
+
+    // product alias is learned; the unit/package choice stays context-specific
+    if (u.productText) {
+      await learnAlias({
+        spokenAlias: u.productText,
+        targetProductIdentity: row.groupKey,
+        targetProductName: row.name,
+        targetUnit: null,
+        source:
+          prompt.aiBestRowId && prompt.aiBestRowId !== row.rowId
+            ? "USER_CORRECTION"
+            : "USER_SELECTION",
+      });
+      await recordCorrection({
+        sessionId: cme().activeId,
+        rawTranscript: u.rawTranscript,
+        aiCandidate: prompt.options[0]?.label ?? null,
+        aiRowId: prompt.aiBestRowId,
+        correctedRowId: row.rowId,
+        correctedName: row.label,
+        physicalPage: cme().pages.activePage,
+        unitContext: u.normalizedUnit ?? null,
+      });
+      await get().refreshAliases();
+    }
+    void drain();
   };
 
   return {
@@ -415,55 +491,27 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     chooseCandidate: async (index) => {
       const prompt = get().prompt;
+      const option = prompt?.options[index];
+      if (!prompt || !option) return;
+      await commitChoice(prompt, option.rowId, option.value);
+    },
+
+    chooseRow: async (rowId) => {
+      const prompt = get().prompt;
       if (!prompt) return;
-      const option = prompt.options[index];
-      if (!option) return;
-      set({ prompt: null });
       const parsed = cme().parsed;
       if (!parsed) return;
       const catalogue = buildProductIndex(parsed);
-      const row = catalogue.find((r) => r.rowId === option.rowId);
+      const row = catalogue.find((r) => r.rowId === rowId);
       if (!row) return;
-
-      cme().focusProductRow(row.rowId);
-
-      const u = prompt.utterance;
-      const rows = prompt.kind === "unit" ? [row] : groupRows(catalogue, row.groupKey);
-      const resolution = resolveUnitDestination(rows, u);
-      const writes =
-        resolution.writes.length > 0
-          ? resolution.writes
-          : u.terms[0]
-            ? [{ rowId: row.rowId, value: u.terms[0].quantity, note: "seçim" }]
-            : [];
-      if (writes.length > 0) applyWrites(writes, u, catalogue);
-
-      await learnAlias({
-        spokenAlias: u.productText,
-        targetProductIdentity: row.groupKey,
-        targetProductName: row.name,
-        targetUnit: row.unitText || null,
-        source: prompt.aiBestRowId && prompt.aiBestRowId !== row.rowId
-          ? "USER_CORRECTION"
-          : "USER_SELECTION",
-      });
-      await recordCorrection({
-        sessionId: cme().activeId,
-        rawTranscript: u.rawTranscript,
-        aiCandidate: prompt.options[0]?.label ?? null,
-        aiRowId: prompt.aiBestRowId,
-        correctedRowId: row.rowId,
-        correctedName: row.label,
-        physicalPage: cme().pages.activePage,
-        unitContext: u.normalizedUnit ?? null,
-      });
-      await get().refreshAliases();
-      void drain();
+      const d = resolveDestination([row], prompt.utterance);
+      const value = d.writes[0]?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
+      await commitChoice(prompt, rowId, value);
     },
 
     dismissPrompt: (unmatched = true) => {
       const prompt = get().prompt;
-      set({ prompt: null });
+      set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
       if (prompt && unmatched) toUnmatched(prompt.utterance, "kullanıcı seçmedi");
       void drain();
     },

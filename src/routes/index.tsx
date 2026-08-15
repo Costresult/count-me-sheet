@@ -10,8 +10,8 @@ import { PageMappingDialog } from "@/components/countme/PageMappingDialog";
 import { ConflictDialog } from "@/components/countme/ConflictDialog";
 import { UnmatchedPanel } from "@/components/countme/UnmatchedPanel";
 import { CompleteDialog } from "@/components/countme/CompleteDialog";
-import { VoiceBar } from "@/components/countme/VoiceBar";
-import { VoiceCandidates } from "@/components/countme/VoiceCandidates";
+import { MobileVoiceFab } from "@/components/countme/VoicePanel";
+import { VoiceDecisionPopup } from "@/components/countme/VoiceDecisionPopup";
 import { VoiceMemoryPanel } from "@/components/countme/VoiceMemoryPanel";
 import { useVoice } from "@/lib/voice/store";
 import { useCountMe } from "@/lib/countme/store";
@@ -62,7 +62,6 @@ function Index() {
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Toolbar />
         {parsed && <PageBar />}
-        {parsed && <VoiceBar />}
         <div className="min-h-0 flex-1">{parsed ? <SheetGrid /> : <EmptyState />}</div>
         {parsed && <FocusDemoBar />}
         {parsed && <MobilePageBar />}
@@ -71,7 +70,8 @@ function Index() {
       <ConflictDialog />
       <UnmatchedPanel />
       <CompleteDialog />
-      <VoiceCandidates />
+      <VoiceDecisionPopup />
+      <MobileVoiceFab />
       <VoiceMemoryPanel />
     </div>
   );

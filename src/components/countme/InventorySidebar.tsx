@@ -16,6 +16,7 @@ import {
 import { useCountMe } from "@/lib/countme/store";
 import { statusLabels, type SessionMeta } from "@/lib/countme/types";
 import { cn } from "@/lib/utils";
+import { VoicePanel } from "./VoicePanel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -243,6 +244,8 @@ export function SidebarPanel() {
         <Section title="Devam Edenler" icon={Clock} items={ongoing} />
         <Section title="Tamamlananlar" icon={CheckCircle2} items={done} />
       </div>
+
+      <div className="shrink-0"><VoicePanel /></div>
 
       <div className="shrink-0 border-t border-border bg-card p-2">
         <button
