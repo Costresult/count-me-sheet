@@ -1,6 +1,6 @@
-import { ChevronLeft, ChevronRight, Minus, Plus, SlidersHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, SlidersHorizontal } from "lucide-react";
 import { useCountMe } from "@/lib/countme/store";
-import { unmappedPages } from "@/lib/countme/pages";
+import { MAX_PAGES, unmappedPages } from "@/lib/countme/pages";
 import { cn } from "@/lib/utils";
 
 function PageNav({ compact }: { compact?: boolean }) {
@@ -38,7 +38,7 @@ function PageNav({ compact }: { compact?: boolean }) {
         data-testid="page-next"
         aria-label="Sonraki sayfa"
         onClick={nextPage}
-        disabled={pages.activePage >= pages.pageCount}
+        disabled={pages.activePage >= MAX_PAGES}
         className={cn(
           "inline-flex items-center justify-center rounded-md bg-secondary text-secondary-foreground disabled:opacity-40",
           compact ? "size-11" : "size-8",
@@ -53,9 +53,9 @@ function PageNav({ compact }: { compact?: boolean }) {
 export function PageBar() {
   const parsed = useCountMe((s) => s.parsed);
   const pages = useCountMe((s) => s.pages);
-  const setPageCount = useCountMe((s) => s.setPageCount);
   const setMappingOpen = useCountMe((s) => s.setMappingOpen);
   const feedback = useCountMe((s) => s.pageFeedback);
+  const addCountColumn = useCountMe((s) => s.addCountColumn);
 
   if (!parsed) return null;
   const mappedId = pages.pageColumns[pages.activePage] ?? null;
@@ -72,36 +72,38 @@ export function PageBar() {
           <>
             Sayım kolonu:{" "}
             <span className="font-semibold text-foreground">
-              {mapped.header} ({mapped.letter})
+              {mapped.header} ({mapped.letter}){mapped.virtual ? " · yeni" : ""}
             </span>
           </>
         ) : (
-          <span className="font-semibold text-destructive">Bu sayfa için kolon eşlenmemiş</span>
+          <span className="font-semibold text-destructive">Bu sayfa için sayım kolonu gerekli</span>
         )}
       </span>
 
+      {!mapped && (
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            data-testid="create-count-column"
+            onClick={() => addCountColumn()}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-semibold text-primary-foreground"
+          >
+            <Plus className="size-4" />
+            YENİ SAYIM KOLONU OLUŞTUR
+          </button>
+          <button
+            type="button"
+            onClick={() => setMappingOpen(true)}
+            className="inline-flex h-8 items-center rounded-md bg-secondary px-2.5 text-[12px] font-medium text-secondary-foreground"
+          >
+            Kolon eşle
+          </button>
+        </div>
+      )}
+
       <div className="ml-auto flex items-center gap-2">
-        <span className="hidden items-center gap-1 text-[12px] text-muted-foreground sm:inline-flex">
-          Sayfa Sayısı:
-          <button
-            type="button"
-            aria-label="Sayfa sayısını azalt"
-            onClick={() => setPageCount(pages.pageCount - 1)}
-            className="inline-flex size-7 items-center justify-center rounded bg-secondary text-secondary-foreground"
-          >
-            <Minus className="size-3.5" />
-          </button>
-          <span data-testid="page-count" className="w-6 text-center font-semibold tabular-nums text-foreground">
-            {pages.pageCount}
-          </span>
-          <button
-            type="button"
-            aria-label="Sayfa sayısını artır"
-            onClick={() => setPageCount(pages.pageCount + 1)}
-            className="inline-flex size-7 items-center justify-center rounded bg-secondary text-secondary-foreground"
-          >
-            <Plus className="size-3.5" />
-          </button>
+        <span data-testid="page-count" className="sr-only">
+          {pages.pageCount}
         </span>
         <button
           type="button"
