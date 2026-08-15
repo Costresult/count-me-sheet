@@ -4,6 +4,7 @@ import { Toolbar } from "@/components/countme/Toolbar";
 import { SheetGrid } from "@/components/countme/SheetGrid";
 import { EmptyState } from "@/components/countme/EmptyState";
 import { FocusDemoBar } from "@/components/countme/FocusDemoBar";
+import { InventorySidebar } from "@/components/countme/InventorySidebar";
 import { useCountMe } from "@/lib/countme/store";
 
 export const Route = createFileRoute("/")({
@@ -29,17 +30,20 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const parsed = useCountMe((s) => s.parsed);
-  const restore = useCountMe((s) => s.restore);
+  const init = useCountMe((s) => s.init);
 
   useEffect(() => {
-    void restore();
-  }, [restore]);
+    void init();
+  }, [init]);
 
   return (
-    <main className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
-      <Toolbar />
-      <div className="min-h-0 flex-1">{parsed ? <SheetGrid /> : <EmptyState />}</div>
-      {parsed && <FocusDemoBar />}
-    </main>
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
+      <InventorySidebar />
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Toolbar />
+        <div className="min-h-0 flex-1">{parsed ? <SheetGrid /> : <EmptyState />}</div>
+        {parsed && <FocusDemoBar />}
+      </main>
+    </div>
   );
 }
