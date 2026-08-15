@@ -242,7 +242,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       const learned = term
         ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
         : null;
-      const value = learned ? learned.correctedValue : w.value;
+      const value = learned ? learned.correctedValue : finalizeValue(w.rowId, u, w.value, index);
       cme().writePageValue(w.rowId, page, value, "VOICE_AI");
       // Occupied cell → the store raised a REPLACE/ADD/CANCEL conflict; nothing
       // was written yet, so no context or learning record may be created.
@@ -319,7 +319,9 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const row = index.find((r) => r.rowId === ctx.rowId);
     if (!row) return false;
     const d = resolveDestination([row], u);
-    const delta = d.writes[0]?.value ?? u.terms[0]?.quantity ?? 0;
+    const rawDelta = d.writes[0]?.value ?? u.terms[0]?.quantity ?? 0;
+    // normalize the delta BEFORE the arithmetic: 1 + "35 CL" on a LİTRE row = 1.35
+    const delta = finalizeValue(ctx.rowId, u, rawDelta, index);
     if (!delta) return false;
     const old = currentValue(ctx.rowId, ctx.columnId);
     const next = round6(old + delta);
@@ -715,7 +717,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
       const row = catalogue.find((r) => r.rowId === rowId);
       if (!row) return;
       const d = resolveDestination([row], prompt.utterance);
-      const value = d.writes[0]?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
+      const proposed = d.writes[0]?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
+      const value = finalizeValue(rowId, prompt.utterance, proposed, catalogue);
       await commitChoice(prompt, rowId, value);
     },
 
