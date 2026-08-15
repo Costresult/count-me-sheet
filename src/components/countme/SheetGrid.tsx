@@ -89,6 +89,8 @@ export function SheetGrid() {
   const focus = useCountMe((s) => s.focus);
   const clearFocus = useCountMe((s) => s.clearFocus);
   const setColumnWidth = useCountMe((s) => s.setColumnWidth);
+  const pages = useCountMe((s) => s.pages);
+  const activeColumnId = pages.pageColumns[pages.activePage] ?? null;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [maxFrozen, setMaxFrozen] = useState(FROZEN_MAX);
@@ -226,6 +228,7 @@ export function SheetGrid() {
               className={cn(
                 "group relative flex shrink-0 items-center border-r border-border bg-[var(--grid-header)] px-2",
                 col.kind === "total" && "bg-[var(--grid-total-header)]",
+                col.id === activeColumnId && "bg-primary/15 ring-1 ring-inset ring-primary/40",
               )}
               onDoubleClick={() => autoFit(col)}
               onContextMenu={(e) => {
@@ -235,6 +238,11 @@ export function SheetGrid() {
               title={`${col.header} (${col.letter})`}
             >
               <span className="truncate text-[12px] font-semibold text-foreground">{col.header}</span>
+              {col.id === activeColumnId && (
+                <span className="ml-1 shrink-0 rounded bg-primary px-1 text-[9px] font-bold uppercase text-primary-foreground">
+                  s{pages.activePage}
+                </span>
+              )}
               {col.kind === "total" && (
                 <span className="ml-1 shrink-0 rounded bg-secondary px-1 text-[9px] uppercase text-muted-foreground">
                   hesap
@@ -309,6 +317,7 @@ export function SheetGrid() {
                         i < frozenCount && vi.index % 2 === 1 && "bg-[var(--grid-stripe-solid)]",
                         i < frozenCount && rowFlash && "bg-[var(--grid-row-flash-solid)]",
                         col.kind === "total" && "bg-[var(--grid-total)] justify-end",
+                        col.id === activeColumnId && "bg-primary/8",
                         isTarget && "ring-2 ring-inset ring-primary",
                       )}
                     >
