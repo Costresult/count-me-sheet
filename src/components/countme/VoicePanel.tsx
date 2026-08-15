@@ -146,13 +146,13 @@ export function VoicePanel() {
         {last?.detail && <p className="truncate text-[11px] text-muted-foreground">{last.detail}</p>}
       </div>
 
-      <div className="grid grid-cols-3 gap-1">
+      <div className="flex flex-col gap-1">
         <VBtn testid="voice-pause" icon={Pause} label="BEKLE" onClick={() => v.pauseListening(false)} />
         <VBtn testid="voice-resume" icon={Play} label="DEVAM" onClick={v.resumeListening} />
         <VBtn testid="voice-undo" icon={Undo2} label="GERİ AL" onClick={undo} />
       </div>
 
-      <div className="mt-1 grid grid-cols-2 gap-1">
+      <div className="mt-1 flex flex-col gap-1">
         <VBtn
           testid="open-unmatched"
           icon={ListPlus}
