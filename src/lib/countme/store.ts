@@ -21,6 +21,25 @@ import {
 
 export const DEFAULT_ROW_HEIGHT = 34;
 
+export type UploadPhase =
+  | "idle"
+  | "validating"
+  | "reading"
+  | "parsing"
+  | "success"
+  | "error";
+
+export const uploadPhaseLabels: Record<UploadPhase, string | null> = {
+  idle: null,
+  validating: "Dosya kontrol ediliyor…",
+  reading: "Dosya okunuyor…",
+  parsing: "Excel okunuyor…",
+  success: "Excel yüklendi",
+  error: null,
+};
+
+const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
+
 export interface FocusTarget {
   rowId: string;
   columnId: string | null;
@@ -49,6 +68,7 @@ interface CountMeState {
   status: SessionStatus;
   busy: boolean;
   error: string | null;
+  uploadPhase: UploadPhase;
   focus: FocusTarget | null;
   undoStack: UndoEntry[];
   savedAt: number | null;
@@ -59,6 +79,7 @@ interface CountMeState {
   uploadFile: (file: File) => Promise<void>;
   openSession: (id: string) => Promise<void>;
   exitWorkspace: () => Promise<void>;
+  exitApplication: () => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
   removeSession: (id: string) => Promise<void>;
   downloadSession: (id: string) => Promise<void>;
