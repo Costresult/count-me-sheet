@@ -1,6 +1,6 @@
 import type { ParsedUtterance, SpokenTerm } from "./parser";
 import type { ProductRow } from "./productIndex";
-import { familyOf, toCl, toGram, type UnitCode } from "./units";
+import { familyOf, toCl, toGram, type RowUnitInfo, type UnitCode } from "./units";
 
 export interface ResolvedWrite {
   rowId: string;
@@ -16,6 +16,43 @@ export interface UnitResolution {
 }
 
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/**
+ * FINAL WRITE GATE.
+ * Converts a spoken quantity into the number that must land in the target
+ * row's cell. Every VOICE_AI write goes through this, so an earlier stage that
+ * lost the unit (e.g. an option built from the raw quantity) can never write
+ * "35" into a LİTRE row.
+ */
+export function normalizeForTargetUnit(
+  quantity: number,
+  sourceUnit: UnitCode | null,
+  target: RowUnitInfo,
+): { value: number; note: string } {
+  const t = target.unit;
+  if (!sourceUnit || !t) return { value: round(quantity), note: "birimsiz" };
+  if (sourceUnit === t) return { value: round(quantity), note: t };
+
+  const src = familyOf(sourceUnit);
+  const dst = familyOf(t);
+
+  if (src === "volume" && dst === "volume") {
+    const cl = toCl(quantity, sourceUnit);
+    return t === "L" ? { value: round(cl / 100), note: "cl→litre" } : { value: round(cl), note: "litre→cl" };
+  }
+  if (src === "weight" && dst === "weight") {
+    const g = toGram(quantity, sourceUnit);
+    return t === "KG" ? { value: round(g / 1000), note: "gram→kg" } : { value: round(g), note: "kg→gram" };
+  }
+  // spoken volume/weight landing on a sized package row → number of packages
+  if (src === "volume" && dst === "count" && target.sizeCl) {
+    return { value: round(toCl(quantity, sourceUnit) / target.sizeCl), note: `${target.sizeCl} cl paket` };
+  }
+  if (src === "weight" && dst === "count" && target.sizeGr) {
+    return { value: round(toGram(quantity, sourceUnit) / target.sizeGr), note: `${target.sizeGr} gr paket` };
+  }
+  return { value: round(quantity), note: `${sourceUnit}→${t}` };
+}
 
 export type UnitConfidence = "HIGH" | "MEDIUM" | "LOW";
 

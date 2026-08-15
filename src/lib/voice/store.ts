@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import { useCountMe } from "@/lib/countme/store";
+import { editKey } from "@/lib/countme/types";
 import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
 import { candidateGroups, matchProduct, type MatchConfidence } from "./matcher";
-import { resolveDestination, type UnitConfidence } from "./unitResolver";
+import { normalizeForTargetUnit, resolveDestination, type UnitConfidence } from "./unitResolver";
 import {
   learnAlias,
   listAliases,
@@ -200,6 +201,32 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const groupRows = (index: ProductRow[], key: string) => index.filter((r) => r.groupKey === key);
 
+  /**
+   * MANDATORY final normalization gate for every VOICE_AI value.
+   * Never trusts a value produced by an earlier stage: when the utterance has a
+   * single spoken term with a unit, the number is recomputed from
+   * (quantity, spokenUnit, targetRowUnit) right before the cell write.
+   */
+  const finalizeValue = (rowId: string, u: ParsedUtterance, proposed: number, index: ProductRow[]) => {
+    const row = index.find((r) => r.rowId === rowId);
+    const term = u.terms.length === 1 && u.operation === "single" ? u.terms[0]! : null;
+    if (!row || !term || !term.unit) return proposed;
+    const n = normalizeForTargetUnit(term.quantity, term.unit, row.unitInfo);
+    if (typeof window !== "undefined") {
+      console.debug("[countme:write]", {
+        rawTranscript: u.rawTranscript,
+        parsedQuantity: term.quantity,
+        parsedUnit: term.unit,
+        targetRow: row.label,
+        targetUnit: row.unitInfo.unit,
+        proposedValue: proposed,
+        normalizedValue: n.value,
+        note: n.note,
+      });
+    }
+    return n.value;
+  };
+
   const optionLabel = (row: ProductRow) => row.label;
 
   const applyWrites = (
@@ -216,7 +243,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       const learned = term
         ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
         : null;
-      const value = learned ? learned.correctedValue : w.value;
+      const value = learned ? learned.correctedValue : finalizeValue(w.rowId, u, w.value, index);
       cme().writePageValue(w.rowId, page, value, "VOICE_AI");
       // Occupied cell → the store raised a REPLACE/ADD/CANCEL conflict; nothing
       // was written yet, so no context or learning record may be created.
@@ -268,7 +295,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
   /** Current value of a cell in the working copy (edits win over the sheet). */
   const currentValue = (rowId: string, columnId: string): number => {
     const c = cme();
-    const key = `${rowId}::${columnId}`;
+    const key = editKey(rowId, columnId);
     const edited = (c.edits as Record<string, number | null>)[key];
     const raw =
       edited !== undefined ? edited : c.parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
@@ -293,7 +320,9 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const row = index.find((r) => r.rowId === ctx.rowId);
     if (!row) return false;
     const d = resolveDestination([row], u);
-    const delta = d.writes[0]?.value ?? u.terms[0]?.quantity ?? 0;
+    const rawDelta = d.writes[0]?.value ?? u.terms[0]?.quantity ?? 0;
+    // normalize the delta BEFORE the arithmetic: 1 + "35 CL" on a LİTRE row = 1.35
+    const delta = finalizeValue(ctx.rowId, u, rawDelta, index);
     if (!delta) return false;
     const old = currentValue(ctx.rowId, ctx.columnId);
     const next = round6(old + delta);
@@ -429,7 +458,14 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const push = (row: ProductRow, value: number, note: string, score: number) => {
       if (seen.has(row.rowId)) return;
       seen.add(row.rowId);
-      options.push({ rowId: row.rowId, label: optionLabel(row), score, value, note });
+      // options must preview the *normalized* number the cell will receive
+      options.push({
+        rowId: row.rowId,
+        label: optionLabel(row),
+        score,
+        value: finalizeValue(row.rowId, u, value, index),
+        note,
+      });
     };
 
     if (productConfidence === "HIGH") {
@@ -689,7 +725,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
       const row = catalogue.find((r) => r.rowId === rowId);
       if (!row) return;
       const d = resolveDestination([row], prompt.utterance);
-      const value = d.writes[0]?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
+      const proposed = d.writes[0]?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
+      const value = finalizeValue(rowId, prompt.utterance, proposed, catalogue);
       await commitChoice(prompt, rowId, value);
     },
 
