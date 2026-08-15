@@ -353,9 +353,6 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const page = cme().pages.activePage;
     const first = u.terms[0];
     cme().addUnmatchedProduct(
-    const page = cme().pages.activePage;
-    const first = u.terms[0];
-    cme().addUnmatchedProduct(
       u.productText || u.rawTranscript,
       first ? first.quantity : null,
       first?.unit ? unitLabel[first.unit] : "",
