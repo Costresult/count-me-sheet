@@ -426,7 +426,15 @@ export const useCountMe = create<CountMeState>((set, get) => {
         const wb = await loadWorkbook(originalFile);
         const ws = wb.getWorksheet(name);
         if (!ws) throw new Error("Çalışma sayfası okunamadı");
-        set({ sheetName: name, parsed: parseSheet(ws), busy: false, view: emptyView() });
+        const parsed = parseSheet(ws);
+        set({
+          sheetName: name,
+          parsed,
+          busy: false,
+          view: emptyView(),
+          pages: derivePages(parsed),
+          conflict: null,
+        });
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
