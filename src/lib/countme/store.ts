@@ -215,6 +215,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
     status: "IDLE",
     busy: false,
     error: null,
+    uploadPhase: "idle",
     focus: null,
     undoStack: [],
     savedAt: null,
@@ -239,17 +240,32 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     uploadFile: async (file) => {
-      set({ busy: true, error: null });
+      set({ busy: true, error: null, uploadPhase: "validating" });
       try {
+        if (!file) throw new Error("Dosya okunamadı.");
         if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
           throw new Error("Desteklenmeyen dosya türü. Lütfen .xlsx veya .xlsm dosyası seçin.");
         }
+        if (file.size === 0) throw new Error("Dosya okunamadı. Dosya boş görünüyor.");
+        if (file.size > MAX_UPLOAD_BYTES) throw new Error("Dosya çok büyük (en fazla 40 MB).");
         await flush(); // auto-save the session we are leaving
-        const buffer = await file.arrayBuffer();
-        const wb = await loadWorkbook(buffer);
+        set({ uploadPhase: "reading" });
+        let buffer: ArrayBuffer;
+        try {
+          buffer = await file.arrayBuffer();
+        } catch {
+          throw new Error("Dosya okunamadı.");
+        }
+        set({ uploadPhase: "parsing" });
+        let wb: Awaited<ReturnType<typeof loadWorkbook>>;
+        try {
+          wb = await loadWorkbook(buffer);
+        } catch {
+          throw new Error("Dosya okunamadı. Geçerli bir Excel dosyası değil.");
+        }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const names: string[] = wb.worksheets.map((ws: any) => ws.name as string);
-        if (names.length === 0) throw new Error("Çalışma kitabında sayfa bulunamadı");
+        if (names.length === 0) throw new Error("Excel içinde çalışma sayfası bulunamadı.");
         const now = Date.now();
         const session: StoredSession = {
           id: `s${now}-${Math.random().toString(36).slice(2, 7)}`,
@@ -265,10 +281,13 @@ export const useCountMe = create<CountMeState>((set, get) => {
         };
         await saveSession(session);
         await applySession(session);
-        set({ sidebarOpen: false });
+        set({ sidebarOpen: false, uploadPhase: "success" });
+        setTimeout(() => {
+          if (get().uploadPhase === "success") set({ uploadPhase: "idle" });
+        }, 1500);
         await get().refreshSessions();
       } catch (e) {
-        set({ busy: false, error: (e as Error).message });
+        set({ busy: false, error: (e as Error).message, uploadPhase: "error" });
       }
     },
 
@@ -294,6 +313,17 @@ export const useCountMe = create<CountMeState>((set, get) => {
       await flush();
       await setActiveId(null);
       clearActive();
+      await get().refreshSessions();
+    },
+
+    // Closes the active workbook and returns to the inventory library.
+    // Nothing is deleted and no session is completed. When authentication is
+    // added later, hook the real sign-out here after the autosave.
+    exitApplication: async () => {
+      await flush();
+      await setActiveId(null);
+      clearActive();
+      set({ sidebarOpen: false, error: null, uploadPhase: "idle" });
       await get().refreshSessions();
     },
 
