@@ -21,6 +21,8 @@ export interface ParsedUtterance {
   terms: SpokenTerm[];
   /** bottle size implied by "70'lik" / "yetmişlik" */
   bottleSizeCl: number | null;
+  /** true when the sentence explicitly means "add to the previous target" (+1, artı 1, bir tane daha) */
+  additive: boolean;
   confidence: number;
   rawTranscript: string;
   normalizedTranscript: string;
@@ -29,6 +31,7 @@ export interface ParsedUtterance {
 const PLUS = new Set(["arti", "plus", "+", "ve"]);
 const TIMES = new Set(["carpi", "x", "kere", "çarpı"]);
 const NOISE = new Set(["tane", "adetten", "den", "dan", "lik", "luk"]);
+const MORE = new Set(["daha", "ekle"]);
 
 /** "70lik", "70likten", "yetmislik" -> bottle size in CL */
 function bottleSizeToken(token: string): number | null {
@@ -45,6 +48,11 @@ function bottleSizeToken(token: string): number | null {
 export function parseUtterance(raw: string): ParsedUtterance {
   const normalizedTranscript = normalizeText(raw);
   const tokens = tokenize(raw);
+  const rawTrimmed = raw.trim();
+  const additive =
+    rawTrimmed.startsWith("+") ||
+    (tokens.length > 0 && PLUS.has(tokens[0]!) && tokens[0] !== "ve") ||
+    tokens.some((t) => MORE.has(t));
 
   interface Located extends SpokenTerm {
     start: number;
@@ -149,6 +157,7 @@ export function parseUtterance(raw: string): ParsedUtterance {
     operation,
     terms,
     bottleSizeCl,
+    additive,
     confidence: Math.min(1, confidence),
     rawTranscript: raw,
     normalizedTranscript,
