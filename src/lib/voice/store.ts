@@ -10,7 +10,11 @@ import {
   listAliases,
   deleteAlias,
   recordCorrection,
+  learnUnitCorrection,
+  listUnitCorrections,
+  findUnitCorrection,
   type AliasRecord,
+  type UnitCorrection,
 } from "./aliases";
 import { primeMicrophone, SpeechCapture, speechSupported } from "./speech";
 import { unitLabel } from "./units";
@@ -46,6 +50,8 @@ export interface CandidateOption {
 }
 
 export interface CandidatePrompt {
+  decisionId: string;
+  utteranceId: string;
   utterance: ParsedUtterance;
   confidence: MatchConfidence;
   productConfidence: MatchConfidence;
@@ -68,6 +74,7 @@ interface VoiceStore {
   prompt: CandidatePrompt | null;
   error: string | null;
   aliases: AliasRecord[];
+  corrections: UnitCorrection[];
   panelOpen: boolean;
 
   refreshAliases: () => Promise<void>;
@@ -86,6 +93,8 @@ interface VoiceStore {
   /** Explicit row pick from the stock search inside the popup. */
   chooseRow: (rowId: string) => Promise<void>;
   dismissPrompt: (toUnmatched?: boolean) => void;
+  /** X on the popup: cancel the decision, write nothing, learn nothing. */
+  cancelPrompt: () => void;
 }
 
 const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -93,6 +102,35 @@ const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toStri
 let capture: SpeechCapture | null = null;
 const queue: string[] = [];
 let draining = false;
+
+/** Last confirmed write target, used by follow-up "+1" style commands. */
+interface SafeContext {
+  rowId: string;
+  rowLabel: string;
+  page: number;
+  columnId: string | null;
+  value: number;
+  spokenUnit: string | null;
+  productText: string;
+  timestamp: number;
+}
+let lastSafe: SafeContext | null = null;
+const CONTEXT_TTL = 5 * 60 * 1000;
+
+/** Voice writes still eligible to be learned from when the user corrects them. */
+interface VoiceWriteRecord {
+  rowId: string;
+  columnId: string;
+  rowLabel: string;
+  value: number;
+  page: number;
+  spokenUnit: string | null;
+  spokenQuantity: number;
+  rawTranscript: string;
+  normalizedTranscript: string;
+}
+const voiceWrites = new Map<string, VoiceWriteRecord>();
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 export const useVoice = create<VoiceStore>((set, get) => {
   // deterministic test hook: feed a transcript without a microphone
