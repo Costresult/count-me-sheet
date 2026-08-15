@@ -475,6 +475,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
         kind: productConfidence === "HIGH" ? "unit" : "product",
       },
     });
+    armPromptTimeout();
     pushEntry({
       rawTranscript: raw,
       normalizedTranscript: u.normalizedTranscript,
@@ -530,7 +531,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   /** Applies an explicit user decision: write, focus, learn, resume queue. */
   const commitChoice = async (prompt: CandidatePrompt, rowId: string, value: number) => {
-    set({ prompt: null, state: capture ? "LISTENING" : "IDLE" });
+    clearPendingContext();
+    set({ state: capture ? "LISTENING" : "IDLE" });
     const parsed = cme().parsed;
     if (!parsed) return;
     const catalogue = buildProductIndex(parsed);
