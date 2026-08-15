@@ -510,10 +510,21 @@ export const useCountMe = create<CountMeState>((set, get) => {
       const col = parsed?.columns.find((c) => c.id === columnId);
       if (!col || col.kind === "total") return;
       const key = editKey(rowId, columnId);
+      const previous = edits[key];
+      const original = parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
+      const oldValue = previous === undefined ? (original as number | string | null) : previous;
       set({
         edits: { ...edits, [key]: value },
-        undoStack: [...undoStack, { rowId, columnId, previous: edits[key] }].slice(-200),
+        undoStack: [...undoStack, { type: "cell" as const, rowId, columnId, previous }].slice(-200),
         ...(status === "RUNNING" ? { status: "PAUSED_BY_USER" as SessionStatus } : {}),
+      });
+      logHistory({
+        action: value === null ? "CELL_CLEAR" : "CELL_WRITE",
+        rowId,
+        columnId,
+        physicalPage: pageOfColumn(columnId),
+        oldValue,
+        newValue: value,
       });
       get().focusCell(rowId, columnId);
       persist();
