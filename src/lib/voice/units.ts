@@ -51,35 +51,58 @@ export interface RowUnitInfo {
   unit: UnitCode | null;
   /** bottle/package size in CL when the row states one (ŞİŞE 70 CL). */
   sizeCl: number | null;
+  /** package size in grams when the row states one (PAKET 25 GR). */
+  sizeGr: number | null;
   /** units per package for KOLİ 24 ADET style rows. */
   perPackage: number | null;
 }
 
-export function detectRowUnit(text: string): RowUnitInfo {
-  const t = ` ${text} `;
-  const out: RowUnitInfo = { unit: null, sizeCl: null, perPackage: null };
+function unitCodeOf(t: string): UnitCode | null {
+  if (/\bkoli\b|\bkasa\b/.test(t)) return "KOLI";
+  if (/\bsise\b|\bbottle\b/.test(t)) return "SISE";
+  if (/\bpaket\b/.test(t)) return "PAKET";
+  if (/\bfici\b|\bvaril\b|\bkeg\b/.test(t)) return "FICI";
+  // kilogram must win over the "gram" substring test
+  if (/\bkg\b|kilogram|\bkilo\b/.test(t)) return "KG";
+  if (/\bgram\b|\bgr\b/.test(t)) return "GRAM";
+  if (/\bcl\b|santilitre/.test(t)) return "CL";
+  if (/\blitre\b|\bliter\b|\blt\b|\bl\b/.test(t)) return "L";
+  if (/\badet\b|\btane\b/.test(t)) return "ADET";
+  return null;
+}
 
-  const sizeCl = /(\d+(?:[.,]\d+)?)\s*cl\b/.exec(t);
-  const sizeMl = /(\d+(?:[.,]\d+)?)\s*ml\b/.exec(t);
-  const sizeLt = /(\d+(?:[.,]\d+)?)\s*(?:lt|l|litre|liter)\b/.exec(t);
-  if (sizeCl) out.sizeCl = Number(sizeCl[1]!.replace(",", "."));
-  else if (sizeMl) out.sizeCl = Number(sizeMl[1]!.replace(",", ".")) / 10;
+function sizes(t: string): { cl: number | null; gr: number | null; lt: number | null } {
+  const num = (m: RegExpExecArray | null) => (m ? Number(m[1]!.replace(",", ".")) : null);
+  const cl = num(/(\d+(?:[.,]\d+)?)\s*cl\b/.exec(t));
+  const ml = num(/(\d+(?:[.,]\d+)?)\s*ml\b/.exec(t));
+  const lt = num(/(\d+(?:[.,]\d+)?)\s*(?:lt|litre|liter)\b/.exec(t));
+  const gr = num(/(\d+(?:[.,]\d+)?)\s*(?:gr|gram)\b/.exec(t));
+  const kg = num(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilogram)\b/.exec(t));
+  return {
+    cl: cl ?? (ml !== null ? ml / 10 : lt !== null ? lt * 100 : null),
+    gr: gr ?? (kg !== null ? kg * 1000 : null),
+    lt,
+  };
+}
 
-  const per = /(\d+)\s*(?:adet|li|lu|lik)\b/.exec(t);
+/**
+ * Detects a row's unit. The unit/package column decides the unit code; the
+ * product name only contributes package sizes ("FESLEĞEN TAZE (25 GR)").
+ */
+export function detectRowUnit(unitText: string, nameText = ""): RowUnitInfo {
+  const u = ` ${unitText} `;
+  const n = ` ${nameText} `;
+  const out: RowUnitInfo = { unit: null, sizeCl: null, sizeGr: null, perPackage: null };
 
-  if (/\bkoli|kasa\b/.test(t)) out.unit = "KOLI";
-  else if (/\bsise|bottle\b/.test(t)) out.unit = "SISE";
-  else if (/\bpaket\b/.test(t)) out.unit = "PAKET";
-  else if (/\bfici|varil|keg\b/.test(t)) out.unit = "FICI";
-  else if (/\bgram|\bgr\b/.test(t)) out.unit = "GRAM";
-  else if (/\bkg\b|kilogram|\bkilo\b/.test(t)) out.unit = "KG";
-  else if (/\bcl\b|santilitre/.test(t)) out.unit = "CL";
-  else if (/\blitre\b|\bliter\b|\blt\b|\bl\b/.test(t)) out.unit = "L";
-  else if (/\badet|\btane\b/.test(t)) out.unit = "ADET";
+  out.unit = unitCodeOf(u) ?? unitCodeOf(n);
 
+  const su = sizes(u);
+  const sn = sizes(n);
+  out.sizeCl = su.cl ?? sn.cl;
+  out.sizeGr = su.gr ?? sn.gr;
+
+  const per = /(\d+)\s*(?:adet|li|lu|lik)\b/.exec(u) ?? /(\d+)\s*(?:adet|li|lu|lik)\b/.exec(n);
   if ((out.unit === "KOLI" || out.unit === "PAKET") && per) out.perPackage = Number(per[1]);
-  if (out.unit === "SISE" && out.sizeCl === null && sizeLt)
-    out.sizeCl = Number(sizeLt[1]!.replace(",", ".")) * 100;
 
   return out;
 }
