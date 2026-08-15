@@ -8,9 +8,10 @@ import {
   saveSession,
   setActiveId,
 } from "./storage";
-import { exportWithEdits, loadWorkbook, parseSheet } from "./workbook";
+import { exportWithEdits, loadWorkbook, parseSheet, withAddedColumns } from "./workbook";
 import { derivePages, MAX_PAGES, pageColumnId } from "./pages";
 import {
+  type AddedColumn,
   editKey,
   emptyPages,
   type PageState,
@@ -91,6 +92,7 @@ interface CountMeState {
   pageFeedback: string | null;
   conflict: WriteConflict | null;
   mappingOpen: boolean;
+  addedColumns: AddedColumn[];
 
   init: () => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -118,6 +120,7 @@ interface CountMeState {
   setPageCount: (count: number) => void;
   setPageColumn: (page: number, columnId: string | null) => void;
   setMappingOpen: (open: boolean) => void;
+  addCountColumn: (page?: number) => string | null;
   writePageValue: (
     rowId: string,
     page: number,
@@ -169,6 +172,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       edits: s.edits,
       view: s.view,
       pages: s.pages,
+      addedColumns: s.addedColumns,
       createdAt: s.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
@@ -196,7 +200,9 @@ export const useCountMe = create<CountMeState>((set, get) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const names: string[] = wb.worksheets.map((ws: any) => ws.name as string);
     const sheetName = session.sheetName ?? names[0] ?? null;
-    const parsed = sheetName ? parseSheet(wb.getWorksheet(sheetName)) : null;
+    const addedColumns = session.addedColumns ?? [];
+    const base = sheetName ? parseSheet(wb.getWorksheet(sheetName)) : null;
+    const parsed = withAddedColumns(base, addedColumns);
     set({
       activeId: session.id,
       name: session.name,
@@ -206,6 +212,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       sheetNames: names,
       sheetName,
       parsed,
+      addedColumns,
       edits: session.edits ?? {},
       view: session.view ?? emptyView(),
       pages: derivePages(parsed, session.pages),
@@ -242,6 +249,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       conflict: null,
       pageFeedback: null,
       mappingOpen: false,
+      addedColumns: [],
     });
 
   return {
