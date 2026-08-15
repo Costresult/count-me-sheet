@@ -1,0 +1,12 @@
+{
+  "name": "Count Me — Envanter Sayım",
+  "short_name": "Count Me",
+  "description": "Excel tabanlı profesyonel envanter sayım aracı.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7faf8",
+  "theme_color": "#128a6b",
+  "lang": "tr",
+  "orientation": "any",
+  "icons": [{ "src": "/favicon.ico", "sizes": "48x48", "type": "image/x-icon" }]
+}

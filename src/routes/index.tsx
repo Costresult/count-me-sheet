@@ -1,24 +1,45 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { Toolbar } from "@/components/countme/Toolbar";
+import { SheetGrid } from "@/components/countme/SheetGrid";
+import { EmptyState } from "@/components/countme/EmptyState";
+import { FocusDemoBar } from "@/components/countme/FocusDemoBar";
+import { useCountMe } from "@/lib/countme/store";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
   component: Index,
+  head: () => ({
+    meta: [
+      { title: "Count Me — Excel Tabanlı Envanter Sayım Aracı" },
+      {
+        name: "description",
+        content:
+          "Excel dosyanızı yükleyin, tabloyu doğrudan düzenleyin ve restoran, bar, otel ve mutfaklar için hızlı envanter sayımı yapın.",
+      },
+      { property: "og:title", content: "Count Me — Excel Tabanlı Envanter Sayım Aracı" },
+      {
+        property: "og:description",
+        content: "Excel çalışma sayfanız arayüzünüz olsun: hızlı, güvenli ve formül korumalı envanter sayımı.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
+  const parsed = useCountMe((s) => s.parsed);
+  const restore = useCountMe((s) => s.restore);
+
+  useEffect(() => {
+    void restore();
+  }, [restore]);
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <main className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
+      <Toolbar />
+      <div className="min-h-0 flex-1">{parsed ? <SheetGrid /> : <EmptyState />}</div>
+      {parsed && <FocusDemoBar />}
+    </main>
   );
 }
