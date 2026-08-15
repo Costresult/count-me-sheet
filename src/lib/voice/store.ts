@@ -109,7 +109,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const canWrite = () => {
     const st = get().state;
-    return st !== "PAUSED_BY_USER" && st !== "PAUSED" && st !== "ERROR";
+    return st !== "PAUSED_BY_USER" && st !== "PAUSED" && st !== "ERROR" && st !== "WAITING_FOR_USER";
   };
 
   const groupRows = (index: ProductRow[], key: string) => index.filter((r) => r.groupKey === key);
