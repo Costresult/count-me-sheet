@@ -6,6 +6,7 @@ import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
 import { candidateGroups, matchProduct, type MatchConfidence } from "./matcher";
 import { normalizeForTargetUnit, resolveDestination, type UnitConfidence } from "./unitResolver";
+import { familyOf } from "./units";
 import {
   learnAlias,
   listAliases,
@@ -18,7 +19,7 @@ import {
   type UnitCorrection,
 } from "./aliases";
 import { primeMicrophone, SpeechCapture, speechSupported } from "./speech";
-import { unitLabel } from "./units";
+import { unitLabel, unitFromToken } from "./units";
 
 export type VoiceState =
   | "IDLE"
@@ -239,8 +240,14 @@ export const useVoice = create<VoiceStore>((set, get) => {
     for (const w of writes) {
       const row = index.find((r) => r.rowId === w.rowId);
       const term = u.terms[0] ?? null;
-      // a repeated manual correction for the same row + spoken quantity wins
-      const learned = term
+      // CL<->L and GRAM<->KG are pure arithmetic (normalizeForTargetUnit), never
+      // "learned" behaviour. A stale/mistaken manual correction (e.g. someone once
+      // retyping a correctly-converted 0.35 back to 35) must never be allowed to
+      // silently override that math again — it would poison every future "35 CL"
+      // for that row forever. Learned corrections only apply where the mapping is
+      // genuinely ambiguous (no spoken unit, or a count/package guess).
+      const deterministicUnit = term?.unit ? familyOf(term.unit) !== "count" : false;
+      const learned = term && !deterministicUnit
         ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
         : null;
       const value = learned ? learned.correctedValue : finalizeValue(w.rowId, u, w.value, index);
@@ -873,7 +880,12 @@ if (typeof window !== "undefined") {
               unitContext: written.spokenUnit,
               kind: "VALUE",
             });
-            if (Number.isFinite(corrected)) {
+            // Never learn a numeric override for CL<->L / GRAM<->KG: that mapping
+            // is pure arithmetic (see normalizeForTargetUnit) and must never be
+            // shadowed by a one-off manual correction, however well-intentioned.
+            const spokenUnitCode = written.spokenUnit ? unitFromToken(written.spokenUnit) : null;
+            const isDeterministic = spokenUnitCode ? familyOf(spokenUnitCode) !== "count" : false;
+            if (Number.isFinite(corrected) && !isDeterministic) {
               await learnUnitCorrection({
                 rowId: written.rowId,
                 rowLabel: written.rowLabel,
