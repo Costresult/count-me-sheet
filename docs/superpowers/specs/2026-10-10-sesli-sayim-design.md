@@ -97,7 +97,7 @@ Saklanacaklar: yüklenen ürün satırları, sayım oturumları ve sayfa değerl
 
 ### Cihaz
 
-Telefon (Karar: ben). Kullanıcı cihazı henüz söylemedi; farklıysa tasarım güncellenir.
+Kullanıcı sayımı genellikle **bilgisayardan** yapar; arayüz bilgisayar öncelikli tasarlanır ama **telefonda da açılıp kullanılabilir** (responsive) olmalıdır. Bilgisayarda mikrofon izni ve bas-konuş için klavye kısayolu (örn. boşluk tuşu) sunulur. (Karar: ben)
 
 ## Kısıtlar
 
