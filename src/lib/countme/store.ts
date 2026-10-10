@@ -8,6 +8,7 @@ import {
   saveSession,
   setActiveId,
 } from "./storage";
+import { appendReading } from "./calc";
 import { exportWithEdits, loadWorkbook, parseSheet, withAddedColumns } from "./workbook";
 import { derivePages, MAX_PAGES, pageColumnId } from "./pages";
 import {
@@ -55,7 +56,13 @@ export interface FocusTarget {
 }
 
 type UndoEntry =
-  | { type: "cell"; rowId: string; columnId: string; previous: number | null | undefined }
+  | {
+      type: "cell";
+      rowId: string;
+      columnId: string;
+      previous: number | null | undefined;
+      previousFormula?: string | undefined;
+    }
   | { type: "unmatched-add"; id: string }
   | { type: "unmatched-remove"; item: UnmatchedProduct }
   | { type: "unmatched-update"; item: UnmatchedProduct }
@@ -90,6 +97,8 @@ interface CountMeState {
   sheetName: string | null;
   parsed: ParsedSheet | null;
   edits: Record<string, number | null>;
+  /** formula body per edited cell ("0.2+0.34"); present when a cell holds several readings */
+  formulas: Record<string, string>;
   view: ViewPrefs;
   status: SessionStatus;
   busy: boolean;
@@ -128,6 +137,7 @@ interface CountMeState {
     columnId: string,
     value: number | null,
     source?: ChangeSource,
+    formula?: string,
   ) => void;
   clearInventoryValue: (rowId: string, columnId: string) => void;
   undoLast: () => void;
@@ -198,6 +208,9 @@ function download(blob: Blob, filename: string) {
 
 const outName = (name: string) => `${name.replace(/\.xls[xm]$/i, "")}-countme.xlsx`;
 
+const SAVE_ERROR = "Buluta kaydedilemedi. İnternet bağlantınızı kontrol edin; otomatik tekrar denenecek.";
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useCountMe = create<CountMeState>((set, get) => {
   const snapshot = (): StoredSession | null => {
     const s = get();
@@ -210,6 +223,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       sheetName: s.sheetName,
       status: s.status,
       edits: s.edits,
+      formulas: s.formulas,
       view: s.view,
       pages: s.pages,
       addedColumns: s.addedColumns,
@@ -223,9 +237,17 @@ export const useCountMe = create<CountMeState>((set, get) => {
   const flush = async () => {
     const session = snapshot();
     if (!session) return;
-    await saveSession(session);
-    set({ savedAt: session.updatedAt });
-    await get().refreshSessions();
+    try {
+      await saveSession(session);
+      if (retryTimer) clearTimeout(retryTimer);
+      set({ savedAt: session.updatedAt, ...(get().error === SAVE_ERROR ? { error: null } : {}) });
+      await get().refreshSessions();
+    } catch {
+      // keep the working copy in memory and try again; nothing is lost while the tab stays open
+      set({ error: SAVE_ERROR });
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => void flush(), 8000);
+    }
   };
 
   const persist = (immediate = false) => {
@@ -234,7 +256,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       void flush();
       return;
     }
-    saveTimer = setTimeout(() => void flush(), 400);
+    saveTimer = setTimeout(() => void flush(), 1200);
   };
 
   const applySession = async (session: StoredSession) => {
@@ -260,6 +282,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       unmatchedOpen: false,
       completeOpen: false,
       edits: session.edits ?? {},
+      formulas: session.formulas ?? {},
       view: session.view ?? emptyView(),
       pages: derivePages(parsed, session.pages),
       conflict: null,
@@ -286,6 +309,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       sheetName: null,
       parsed: null,
       edits: {},
+      formulas: {},
       undoStack: [],
       view: emptyView(),
       status: "IDLE",
@@ -336,7 +360,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
 
   /** Builds the xlsx from the working copy. `complete` marks the session COMPLETED. */
   const runExport = async (complete: boolean) => {
-    const { originalFile, sheetName, parsed, edits, name, fileName, addedColumns, unmatched, pages } =
+    const { originalFile, sheetName, parsed, edits, formulas, name, fileName, addedColumns, unmatched, pages } =
       get();
     if (!originalFile || !sheetName || !parsed) return;
     set({ busy: true, error: null });
@@ -354,6 +378,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
         edits,
         addedColumns,
         rows,
+        formulas,
       );
       const base = (name ?? fileName ?? "envanter").replace(/\.xls[xm]$/i, "");
       download(out.blob, complete ? `${base} - Count Me Completed.xlsx` : outName(base));
@@ -379,6 +404,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
     sheetName: null,
     parsed: null,
     edits: {},
+    formulas: {},
     view: emptyView(),
     status: "IDLE",
     busy: false,
@@ -533,7 +559,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
         }
         if (!session || !session.sheetName) throw new Error("Envanter bulunamadı");
         const wb = await loadWorkbook(session.originalFile);
-        const parsed = parseSheet(wb.getWorksheet(session.sheetName));
+        const parsed = withAddedColumns(
+          parseSheet(wb.getWorksheet(session.sheetName)),
+          session.addedColumns ?? [],
+        )!;
         const blob = await exportWithEdits(
           session.originalFile,
           session.sheetName,
@@ -546,6 +575,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
             amount: u.amount,
             columnId: session.pages ? session.pages.pageColumns[u.physicalPage] ?? null : null,
           })),
+          session.formulas ?? {},
         );
         download(blob.blob, outName(session.name || session.fileName));
         set({ busy: false, error: blob.warning });
@@ -592,17 +622,24 @@ export const useCountMe = create<CountMeState>((set, get) => {
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
 
-    writeInventoryValue: (rowId, columnId, value, source = "MANUAL") => {
-      const { edits, parsed, undoStack, status } = get();
+    writeInventoryValue: (rowId, columnId, value, source = "MANUAL", formula) => {
+      const { edits, formulas, parsed, undoStack, status } = get();
       const col = parsed?.columns.find((c) => c.id === columnId);
       if (!col || col.kind === "total") return;
       const key = editKey(rowId, columnId);
       const previous = edits[key];
       const original = parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
       const oldValue = previous === undefined ? (original as number | string | null) : previous;
+      const nextFormulas = { ...formulas };
+      if (formula) nextFormulas[key] = formula;
+      else delete nextFormulas[key];
       set({
         edits: { ...edits, [key]: value },
-        undoStack: [...undoStack, { type: "cell" as const, rowId, columnId, previous }].slice(-200),
+        formulas: nextFormulas,
+        undoStack: [
+          ...undoStack,
+          { type: "cell" as const, rowId, columnId, previous, previousFormula: formulas[key] },
+        ].slice(-200),
         ...(status === "RUNNING" && source === "MANUAL"
           ? { status: "PAUSED_BY_USER" as SessionStatus }
           : {}),
@@ -713,12 +750,14 @@ export const useCountMe = create<CountMeState>((set, get) => {
     },
 
     writePageValue: (rowId, page, value, source = "USER") => {
-      const { pages, parsed, edits } = get();
-      const columnId = pageColumnId(pages, page);
+      let columnId = pageColumnId(get().pages, page);
+      // a new physical page gets its own count column automatically (E, F, G ...)
+      if (!columnId && source !== "USER") columnId = get().addCountColumn(page);
       if (!columnId) {
         set({ error: `Sayfa ${page} için sayım kolonu eşlenmemiş. Lütfen mapping yapın.`, mappingOpen: true });
         return;
       }
+      const { pages, parsed, edits, formulas } = get();
       const row = parsed?.rows.find((r) => r.id === rowId);
       const col = parsed?.columns.find((c) => c.id === columnId);
       if (!row || !col || col.kind === "total") return;
@@ -726,6 +765,20 @@ export const useCountMe = create<CountMeState>((set, get) => {
       const edited = edits[key];
       const current = edited === undefined ? row.cells[columnId]?.value ?? null : edited;
       const occupied = current !== null && current !== undefined && String(current).trim() !== "";
+      // a second reading of the same product on the same page is added as a formula (=0.2+0.34)
+      if (source === "VOICE_AI" && occupied && value !== null) {
+        const base = Number(String(current).replace(",", "."));
+        const sum = Math.round(((Number.isFinite(base) ? base : 0) + value) * 1e6) / 1e6;
+        set({ pages: { ...pages, lastActiveRow: rowId } });
+        get().writeInventoryValue(
+          rowId,
+          columnId,
+          sum,
+          "VOICE_AI",
+          appendReading(formulas[key], Number.isFinite(base) ? base : 0, value),
+        );
+        return;
+      }
       if (source !== "USER" && occupied && current !== value) {
         set({
           conflict: {
@@ -757,17 +810,20 @@ export const useCountMe = create<CountMeState>((set, get) => {
       const { pages } = get();
       set({ pages: { ...pages, lastActiveRow: c.rowId } });
       let value = c.value;
+      let formula: string | undefined;
       if (mode === "add") {
         const existing = Number(String(c.existing ?? "").replace(",", "."));
         const base = Number.isFinite(existing) ? existing : 0;
         const incoming = c.value === null ? 0 : c.value;
         value = Math.round((base + incoming) * 1e6) / 1e6;
+        formula = appendReading(get().formulas[editKey(c.rowId, c.columnId)], base, incoming);
       }
       get().writeInventoryValue(
         c.rowId,
         c.columnId,
         value,
         c.source === "VOICE_AI" ? "VOICE_AI" : c.source === "SYSTEM" ? "SYSTEM" : "MANUAL",
+        formula,
       );
     },
 
@@ -777,16 +833,24 @@ export const useCountMe = create<CountMeState>((set, get) => {
       if (!last) return;
       const rest = undoStack.slice(0, -1);
 
-      const restoreCell = (rowId: string, columnId: string, previous: number | null | undefined) => {
+      const restoreCell = (
+        rowId: string,
+        columnId: string,
+        previous: number | null | undefined,
+        previousFormula?: string,
+      ) => {
         const next = { ...get().edits };
+        const nextFormulas = { ...get().formulas };
         const key = editKey(rowId, columnId);
         if (previous === undefined) delete next[key];
         else next[key] = previous;
-        set({ edits: next });
+        if (previousFormula) nextFormulas[key] = previousFormula;
+        else delete nextFormulas[key];
+        set({ edits: next, formulas: nextFormulas });
       };
 
       if (last.type === "cell") {
-        restoreCell(last.rowId, last.columnId, last.previous);
+        restoreCell(last.rowId, last.columnId, last.previous, last.previousFormula);
         set({ undoStack: rest });
         logHistory({
           action: "UNDO",

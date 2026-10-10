@@ -13,6 +13,7 @@ import {
   Clock,
   Power,
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { useCountMe } from "@/lib/countme/store";
 import { statusLabels, type SessionMeta } from "@/lib/countme/types";
 import { cn } from "@/lib/utils";
@@ -258,8 +259,16 @@ export function SidebarPanel() {
           Programdan Çık
         </button>
         <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-          Envanterleriniz kaydedilir, hiçbir kayıt silinmez.
+          Envanterleriniz hesabınıza kaydedilir, hiçbir kayıt silinmez.
         </p>
+        <button
+          type="button"
+          data-testid="sign-out"
+          onClick={() => void exitApplication().then(() => supabase.auth.signOut())}
+          className="mt-1 w-full px-1 text-left text-[11px] text-muted-foreground underline"
+        >
+          Oturumu kapat
+        </button>
       </div>
     </div>
   );

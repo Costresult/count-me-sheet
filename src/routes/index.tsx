@@ -13,6 +13,8 @@ import { MobileVoiceFab } from "@/components/countme/VoicePanel";
 import { VoiceDecisionPopup } from "@/components/countme/VoiceDecisionPopup";
 import { VoiceMemoryPanel } from "@/components/countme/VoiceMemoryPanel";
 import { VoiceHotkeys } from "@/components/countme/VoiceHotkeys";
+import { AuthGate } from "@/components/countme/AuthGate";
+import { migrateLocalToCloud } from "@/lib/countme/migrateLocal";
 import { useVoice } from "@/lib/voice/store";
 import { useCountMe } from "@/lib/countme/store";
 
@@ -38,11 +40,24 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  return (
+    <AuthGate>
+      <Workspace />
+    </AuthGate>
+  );
+}
+
+function Workspace() {
   const parsed = useCountMe((s) => s.parsed);
   const init = useCountMe((s) => s.init);
 
   useEffect(() => {
-    void init();
+    // bring over anything earlier versions kept only in this browser, then load the cloud data
+    void migrateLocalToCloud()
+      .catch(() => undefined)
+      .then(() => init())
+      .then(() => useVoice.getState().refreshAliases())
+      .catch(() => undefined);
   }, [init]);
 
   // test/automation hook for the physical page engine (also used by future voice AI)

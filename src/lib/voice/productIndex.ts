@@ -11,6 +11,8 @@ export interface ProductRow {
   norm: string;
   tokens: string[];
   phon: string;
+  /** phonetic key per name token, for token-level phonetic matching */
+  phonTokens: string[];
   unitInfo: RowUnitInfo;
   /** normalized product name with unit words removed – groups the rows of one product */
   groupKey: string;
@@ -75,6 +77,7 @@ export function buildProductIndex(parsed: ParsedSheet | null): ProductRow[] {
       norm,
       tokens: tokenize(`${name} ${unitText}`),
       phon: phoneticKey(name),
+      phonTokens: tokenize(name).map(phoneticKey),
       unitInfo: detectRowUnit(normalizeText(unitText), normalizeText(name)),
       groupKey,
     });

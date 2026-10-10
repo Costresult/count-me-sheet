@@ -1,5 +1,5 @@
 import { normalizeText, tokenize } from "./text";
-import { parseNumberAt } from "./numbers";
+import { parseDecimalAt, parseNumberAt } from "./numbers";
 import { isUnitToken, MILLILITRE_TOKENS, unitFromToken, type UnitCode } from "./units";
 
 export type Operation = "single" | "plus" | "multiply";
@@ -21,6 +21,8 @@ export interface ParsedUtterance {
   terms: SpokenTerm[];
   /** bottle size implied by "70'lik" / "yetmişlik" */
   bottleSizeCl: number | null;
+  /** set when the sentence is ambiguous and the user must confirm (e.g. a bare "200") */
+  needsConfirmation?: "LARGE_BARE_NUMBER" | undefined;
   /** true when the sentence explicitly means "add to the previous target" (+1, artı 1, bir tane daha) */
   additive: boolean;
   confidence: number;
@@ -41,7 +43,9 @@ function expandTokens(tokens: string[]): string[] {
   const out: string[] = [];
   for (const t of tokens) {
     const m = GLUED.exec(t);
+    const frac = /^[.,](\d+)$/.exec(t);
     if (m) out.push(m[1]!, m[2]!);
+    else if (frac) out.push("nokta", frac[1]!);
     else out.push(t);
   }
   return out;
@@ -102,7 +106,7 @@ export function parseUtterance(raw: string): ParsedUtterance {
       continue;
     }
 
-    const num = parseNumberAt(tokens, i);
+    const num = parseDecimalAt(tokens, i) ?? parseNumberAt(tokens, i);
     if (num) {
       let j = i + num.length;
       let unit: UnitCode | null = null;
@@ -162,7 +166,12 @@ export function parseUtterance(raw: string): ParsedUtterance {
   if (first) confidence += 0.15;
   if (first?.unit) confidence += 0.1;
 
+  const needsConfirmation = terms.some((t) => t.unit === null && t.quantity >= 100)
+    ? ("LARGE_BARE_NUMBER" as const)
+    : undefined;
+
   return {
+    needsConfirmation,
     productText,
     quantity: first ? first.quantity : null,
     spokenUnit: first?.spokenUnit ?? null,

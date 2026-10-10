@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import { useCountMe } from "@/lib/countme/store";
 import { editKey } from "@/lib/countme/types";
+import { appendReading } from "@/lib/countme/calc";
 import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
-import { candidateGroups, matchProduct, type MatchConfidence } from "./matcher";
+import { candidateGroups, matchProductWithNameNumber, type MatchConfidence } from "./matcher";
 import { normalizeForTargetUnit, resolveDestination, type UnitConfidence } from "./unitResolver";
 import { familyOf } from "./units";
 import {
@@ -333,7 +334,13 @@ export const useVoice = create<VoiceStore>((set, get) => {
     if (!delta) return false;
     const old = currentValue(ctx.rowId, ctx.columnId);
     const next = round6(old + delta);
-    cme().writeInventoryValue(ctx.rowId, ctx.columnId, next, "VOICE_AI");
+    cme().writeInventoryValue(
+      ctx.rowId,
+      ctx.columnId,
+      next,
+      "VOICE_AI",
+      appendReading(cme().formulas[editKey(ctx.rowId, ctx.columnId)], old, delta),
+    );
     voiceWrites.set(`${ctx.rowId}|${ctx.columnId}`, {
       rowId: ctx.rowId,
       columnId: ctx.columnId,
@@ -439,7 +446,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const processOne = async (raw: string) => {
     if (handleCommand(raw)) return;
-    const u = parseUtterance(raw);
+    let u = parseUtterance(raw);
     const parsed = cme().parsed;
     if (!parsed) return;
     const catalogue = buildProductIndex(parsed);
@@ -461,7 +468,9 @@ export const useVoice = create<VoiceStore>((set, get) => {
     }
 
     const index = catalogue;
-    const match = matchProduct(index, u.productText, get().aliases);
+    const named = matchProductWithNameNumber(index, u, get().aliases);
+    const match = named.match;
+    u = named.utterance;
 
     if (!match.best) {
       toUnmatched(u, "eşleşme bulunamadı");

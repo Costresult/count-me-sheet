@@ -1,4 +1,4 @@
-import { openDB, type IDBPDatabase } from "idb";
+import { cloudDocs } from "@/lib/countme/cloud";
 import { normalizeText } from "./text";
 
 /** Persistent pronunciation / alias memory. Learns conservatively from user corrections. */
@@ -46,25 +46,12 @@ export interface UnitCorrection {
   lastUsed: number;
 }
 
-const DB_NAME = "countme-learning";
-const ALIASES = "aliases";
-const CORRECTIONS = "corrections";
-const UNITMAP = "unitmap";
+const ALIASES = "aliases" as const;
+const CORRECTIONS = "corrections" as const;
+const UNITMAP = "unitmap" as const;
 
-let dbPromise: Promise<IDBPDatabase> | null = null;
-function db() {
-  if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, 2, {
-      upgrade(d) {
-        if (!d.objectStoreNames.contains(ALIASES)) d.createObjectStore(ALIASES, { keyPath: "id" });
-        if (!d.objectStoreNames.contains(CORRECTIONS))
-          d.createObjectStore(CORRECTIONS, { keyPath: "id" });
-        if (!d.objectStoreNames.contains(UNITMAP)) d.createObjectStore(UNITMAP, { keyPath: "id" });
-      },
-    });
-  }
-  return dbPromise;
-}
+/** Same tiny get/put/getAll/delete surface the IndexedDB version had, now backed by the cloud. */
+const db = async () => cloudDocs;
 
 export async function listAliases(): Promise<AliasRecord[]> {
   try {
