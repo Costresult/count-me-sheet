@@ -1,4 +1,6 @@
 import { normalizeText, phoneticKey, similarity, tokenize } from "./text";
+import { digitizeGluedNumbers } from "./numbers";
+import type { ParsedUtterance } from "./parser";
 import type { ProductRow } from "./productIndex";
 import type { AliasRecord } from "./aliases";
 
@@ -17,16 +19,25 @@ export interface MatchResult {
   aliasUsed: AliasRecord | null;
 }
 
-function scoreRow(queryNorm: string, queryTokens: string[], queryPhon: string, row: ProductRow) {
+function scoreRow(
+  queryNorm: string,
+  queryTokens: string[],
+  queryPhonTokens: string[],
+  queryPhon: string,
+  row: ProductRow,
+) {
   if (!queryNorm) return { score: 0, reason: "empty" };
   const nameNorm = normalizeText(row.name);
   if (nameNorm === queryNorm) return { score: 1, reason: "exact" };
   if (row.norm === queryNorm) return { score: 0.98, reason: "exact+unit" };
 
   const rowTokens = row.tokens;
-  const contained = queryTokens.filter((t) =>
-    rowTokens.some((rt) => rt === t || (t.length >= 4 && rt.startsWith(t))),
-  ).length;
+  const contained = queryTokens.filter((t, qi) => {
+    if (rowTokens.some((rt) => rt === t || (t.length >= 4 && rt.startsWith(t)))) return true;
+    // English brand names spoken with Turkish pronunciation ("cek deniels" ~ "jack daniels")
+    const qp = queryPhonTokens[qi];
+    return !!qp && qp.length >= 3 && row.phonTokens.includes(qp);
+  }).length;
   const coverage = queryTokens.length ? contained / queryTokens.length : 0;
 
   let score = 0;
@@ -64,9 +75,10 @@ export function matchProduct(
   productText: string,
   aliases: AliasRecord[] = [],
 ): MatchResult {
-  const queryNorm = normalizeText(productText);
-  const queryTokens = tokenize(productText);
-  const queryPhon = phoneticKey(productText);
+  const queryTokens = digitizeGluedNumbers(tokenize(productText));
+  const queryNorm = queryTokens.join(" ");
+  const queryPhon = phoneticKey(queryNorm);
+  const queryPhonTokens = queryTokens.map(phoneticKey);
 
   const alias =
     aliases.find((a) => a.normalizedAlias === queryNorm) ??
@@ -75,7 +87,7 @@ export function matchProduct(
 
   const scored: MatchCandidate[] = [];
   for (const row of index) {
-    const { score, reason } = scoreRow(queryNorm, queryTokens, queryPhon, row);
+    const { score, reason } = scoreRow(queryNorm, queryTokens, queryPhonTokens, queryPhon, row);
     if (score < 0.42) continue;
     let final = score;
     let why = reason;
@@ -111,4 +123,38 @@ export function candidateGroups(candidates: MatchCandidate[]): MatchCandidate[] 
     out.push(c);
   }
   return out;
+}
+
+/**
+ * "şivas on iki" parses as product "şivas" + quantity 12. When the product text alone is not
+ * a confident match but appending the unitless integer to it is, the number belongs to the
+ * product name ("WHY CHIVAS 12 YRS") and is removed from the quantities.
+ */
+export function matchProductWithNameNumber(
+  index: ProductRow[],
+  u: ParsedUtterance,
+  aliases: AliasRecord[] = [],
+): { match: MatchResult; utterance: ParsedUtterance } {
+  const plain = matchProduct(index, u.productText, aliases);
+  const first = u.terms[0];
+  if (plain.confidence === "HIGH" || !first || first.unit !== null || !Number.isInteger(first.quantity)) {
+    return { match: plain, utterance: u };
+  }
+  const withNumber = matchProduct(index, `${u.productText} ${first.quantity}`, aliases);
+  const numberInName = withNumber.best?.row.tokens.includes(String(first.quantity)) ?? false;
+  if (withNumber.confidence === "HIGH" && numberInName) {
+    return {
+      match: withNumber,
+      utterance: {
+        ...u,
+        productText: `${u.productText} ${first.quantity}`,
+        terms: u.terms.slice(1),
+        quantity: u.terms[1]?.quantity ?? null,
+        spokenUnit: u.terms[1]?.spokenUnit ?? null,
+        normalizedQuantity: u.terms[1]?.quantity ?? null,
+        normalizedUnit: u.terms[1]?.unit ?? null,
+      },
+    };
+  }
+  return { match: plain, utterance: u };
 }

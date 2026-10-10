@@ -27,12 +27,14 @@ export function phoneticKey(s: string): string {
   let t = normalizeText(s).replace(/[^a-z0-9]/g, "");
   t = t
     .replace(/ph/g, "f")
+    .replace(/ch/g, "s") // "chivas" is spoken "şivas"
+    .replace(/sh/g, "s")
     .replace(/ck/g, "k")
     .replace(/q/g, "k")
     .replace(/w/g, "v")
     .replace(/x/g, "ks")
     .replace(/y/g, "i")
-    .replace(/j/g, "z")
+    .replace(/j/g, "k") // Turkish "cek" ≈ English "jack": j/c/g/k share one class
     .replace(/d(?=$)/g, "t")
     .replace(/b(?=$)/g, "p")
     .replace(/c/g, "k")

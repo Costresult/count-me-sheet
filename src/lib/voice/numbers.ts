@@ -150,3 +150,16 @@ export function parseDecimalAt(tokens: string[], i: number): NumberMatch | null 
   const value = Number(`${intPart}.${frac.digits}`);
   return { value, length: idx + 1 + frac.length - i };
 }
+
+const GLUED_TENS_ONES = new RegExp(
+  `^(${Object.keys(TENS).join("|")})(${Object.keys(ONES).filter((k) => k !== "sifir").join("|")})?$`,
+);
+
+/** Product-name numbers spoken as one word ("oniki", "onsekiz", "yirmibes") become digits. */
+export function digitizeGluedNumbers(tokens: string[]): string[] {
+  return tokens.map((t) => {
+    const m = GLUED_TENS_ONES.exec(t);
+    if (!m || !m[2]) return t;
+    return String(TENS[m[1]!]! + ONES[m[2]]!);
+  });
+}
