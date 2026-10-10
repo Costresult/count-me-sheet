@@ -5,7 +5,7 @@ import { editKey, type SheetColumn, type SheetRow } from "@/lib/countme/types";
 import { formatTotal, liveRowTotal, parseNumericInput, totalSourceColumnIds } from "@/lib/countme/calc";
 import { cn } from "@/lib/utils";
 
-const FROZEN_MAX = 2;
+const FROZEN_MAX = 3; // group, product, unit: the unit tells which row of a product is being counted
 
 function measureText(text: string, font: string) {
   const canvas = (measureText as unknown as { c?: HTMLCanvasElement }).c ?? document.createElement("canvas");
@@ -102,7 +102,7 @@ export function SheetGrid() {
   const [menu, setMenu] = useState<{ x: number; y: number; col: SheetColumn } | null>(null);
 
   useEffect(() => {
-    const update = () => setMaxFrozen(window.innerWidth >= 700 ? FROZEN_MAX : 1);
+    const update = () => setMaxFrozen(window.innerWidth >= 1100 ? FROZEN_MAX : window.innerWidth >= 700 ? 2 : 1);
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);

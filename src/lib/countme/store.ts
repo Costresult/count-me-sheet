@@ -296,6 +296,19 @@ export const useCountMe = create<CountMeState>((set, get) => {
       savedAt: session.updatedAt,
     });
     await setActiveId(session.id);
+    ensureFirstPageColumn();
+  };
+
+  /**
+   * Simpra-style sheets arrive with only a total column. Page 1 needs its own count column
+   * (the total sits in front of the pages), so it is created right away instead of on first write.
+   */
+  const ensureFirstPageColumn = () => {
+    const { parsed, pages, addedColumns } = get();
+    if (!parsed || addedColumns.length > 0 || pages.pageColumns[1]) return;
+    const hasTotal = parsed.columns.some((c) => c.kind === "total");
+    const hasCount = parsed.columns.some((c) => c.kind === "count");
+    if (hasTotal && !hasCount) get().addCountColumn(1);
   };
 
   const clearActive = () =>
@@ -602,6 +615,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
           conflict: null,
           addedColumns: [],
         });
+        ensureFirstPageColumn();
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
