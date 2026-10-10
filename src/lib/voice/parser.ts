@@ -22,7 +22,7 @@ export interface ParsedUtterance {
   /** bottle size implied by "70'lik" / "yetmişlik" */
   bottleSizeCl: number | null;
   /** set when the sentence is ambiguous and the user must confirm (e.g. a bare "200") */
-  needsConfirmation?: "LARGE_BARE_NUMBER";
+  needsConfirmation?: "LARGE_BARE_NUMBER" | undefined;
   /** true when the sentence explicitly means "add to the previous target" (+1, artı 1, bir tane daha) */
   additive: boolean;
   confidence: number;
