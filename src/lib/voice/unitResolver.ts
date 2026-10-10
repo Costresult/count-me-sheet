@@ -242,6 +242,11 @@ function classify(
   const q = term.quantity;
 
   if (!unit) {
+    // "nokta iki": a spoken fraction without a unit is a measured amount, so it belongs on
+    // the product's LİTRE / KİLOGRAM row (never on a bottle or package row).
+    if (!Number.isInteger(q) && (info.unit === "L" || info.unit === "KG")) {
+      return { kind: "exact", value: round(q), note: unitLabelNote(info.unit) };
+    }
     // no spoken unit: nothing is a strong signal
     return { kind: "weak", value: round(q), note: info.unit ? unitLabelNote(info.unit) : "birimsiz" };
   }
@@ -307,6 +312,22 @@ export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Dest
   }
 
   const term = u.terms[0]!;
+
+  // "1 şişe" on a product that has no bottle row: the bottle goes on the LİTRE row as the
+  // bottle size (0.70 / 0.75 / 0.50). Proposed, not auto-written, until the user confirms it.
+  if (term.unit === "SISE" && !rows.some((r) => r.unitInfo.unit === "SISE")) {
+    const litreRows = rows.filter((r) => r.unitInfo.unit === "L");
+    if (litreRows.length === 1) {
+      const cl = u.bottleSizeCl ?? 70;
+      return {
+        writes: [],
+        confidence: "MEDIUM",
+        options: [{ row: litreRows[0]!, value: round((term.quantity * cl) / 100), note: `${cl} cl şişe→litre` }],
+        reason: "şişe satırı yok",
+      };
+    }
+  }
+
   const scored = rows
     .map((r) => {
       const c = classify(r, term);
