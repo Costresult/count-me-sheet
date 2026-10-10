@@ -54,6 +54,11 @@ Referans dosya: `SERVANT_EYLUL_BAR_SAYIM.xlsx` (652 satır; kolonlar: Alt Grup, 
   - Eşleştirme yazıya değil okunuşa dayanır; "Cek Denyıls" ile "Jack Daniels" eşleşebilmelidir.
   - Ses tanıma Türkçe ve İngilizce birlikte denenir (iki dilde de aynı kayıt çözülür, en güvenilir sonuç veya iki sonucun adayları birleştirilir). (Karar: ben)
   - Her bozuk duyuşun doğru ürüne bağlanması takma ad olarak kaydedilir; ilk sayımlarda çok soracak, sonra azalacak.
+- **Ürün adındaki sayılar (önemli):** Excel'de adında sayı olan çok ürün var (127 ürün; örn. `WHY CHIVAS 12 YRS`, `CIN MONKEY 47 50 CL`, `COCA COLA 1 LT`). Kullanıcı "şivas oniki" der; "oniki" miktar değil, ürün adının parçasıdır.
+  - Sayı çözümü, ürün adı eşleştirmesinden sonra çalışır: önce ürün adı (içindeki sayılarla birlikte) eşleştirilir, kalan kısım miktar olarak okunur.
+  - Belirsizse ("şivas on iki bir şişe" gibi) kullanıcıya sorulur.
+- **Ürüne farklı adlarla hitap:** Kullanıcı aynı ürüne "şivas regal" veya "şivas oniki" der; ikisi de `WHY CHIVAS 12 YRS`'a gider. Bu gibi eşdeğer adlar takma ad olarak kaydedilir; ilk kullanımda sistem sorar (Chivas'ın 12/13/15/18/Extra Smokey varyantları var, "regal" hangisi?).
+- **Okunuş farkı:** "Chivas" Türkçede "şivas" okunur; eşleştirme "ch" ↔ "ş" gibi İngilizce marka okunuşlarını Türkçe yazılışa çevirir. (Karar: ben)
 - **Excel'deki ön ekler söylenmez:** `LQR`, `WHY` gibi grup kısaltmaları ürün adından çıkarılarak eşleştirilir. Kullanıcı "Jack Daniels Apple" der, Excel'de `WHY JACK DANIELS APPLE` yazar. Aynı markanın varyantları (Apple, Honey, Fire, Bonded...) varsa sistem varyantı ayırt edemezse adayları gösterir.
 
 ### Sayı ve birim kuralları
