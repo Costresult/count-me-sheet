@@ -37,6 +37,15 @@ Referans dosya: `SERVANT_EYLUL_BAR_SAYIM.xlsx` (652 satır; kolonlar: Alt Grup, 
   - **E, F, G, ...:** sayfa 1, 2, 3, ... Kolon sayısı sınırsız. (Karar: ben)
 - Ondalık ayracı formüllerde Excel uyumlu olması için nokta; ekranda virgül. (Karar: ben)
 
+### Dosya yönetimi
+
+- Excel, sürükle-bırak ile (veya dosya seçerek) yüklenir.
+- Yüklenen her dosya veritabanında bir liste olarak kalır (ad, yükleme tarihi, sayım durumu). Kullanıcı listeden istediğini açıp sayıma devam edebilir.
+- Kullanıcı istediği dosyayı silebilir (silmeden önce onay sorulur). (Karar: ben)
+- Kullanıcı istediği zaman, sayım bitmeden de, dosyanın o ana kadarki halini Excel olarak indirebilir.
+- Öğrenilen takma adlar ve tercihler dosyaya değil kullanıcıya bağlıdır; dosya silinse de, yeni ay yüklense de kalır. (Karar: ben)
+- Başlangıçta hazır bir takma ad listesi yok; sistem sadece kullanıcı söyledikçe öğrenir.
+
 ### Sayfa mantığı
 
 - Kullanıcı kağıt sayfalarını sırayla okur. "Yeni sayfa" düğmesi bir sonraki kolona geçer.
