@@ -93,3 +93,60 @@ export function parseNumberAt(tokens: string[], i: number): NumberMatch | null {
   if (!matched) return null;
   return { value: total + current, length: idx - i };
 }
+
+export const POINT_WORDS = new Set(["nokta", "virgul"]);
+
+/**
+ * Fraction digits spoken after "nokta"/"virgül": "iki" -> "2", "otuz dört" -> "34",
+ * "sıfır sıfır beş" -> "005", "5" -> "5". Returns null when no digits follow.
+ */
+function parseFractionDigits(tokens: string[], i: number): { digits: string; length: number } | null {
+  let digits = "";
+  let j = i;
+  while (j < tokens.length) {
+    const t = tokens[j]!;
+    if (t === "sifir") {
+      digits += "0";
+      j++;
+    } else if (t in ONES) {
+      digits += String(ONES[t]!);
+      j++;
+    } else if (t in TENS) {
+      let v = TENS[t]!;
+      j++;
+      const next = tokens[j];
+      if (next && next in ONES && ONES[next]! > 0) {
+        v += ONES[next]!;
+        j++;
+      }
+      digits += String(v);
+      break;
+    } else if (/^\d+$/.test(t)) {
+      digits += t;
+      j++;
+      break;
+    } else {
+      break;
+    }
+  }
+  return digits ? { digits, length: j - i } : null;
+}
+
+/**
+ * Spoken decimals: "nokta iki" = 0.2, "bir nokta beş" = 1.5, "nokta sıfır sıfır beş" = 0.005.
+ * Starts at an optional integer part followed by a point word, or at the point word itself.
+ */
+export function parseDecimalAt(tokens: string[], i: number): NumberMatch | null {
+  let intPart = 0;
+  let idx = i;
+  if (!POINT_WORDS.has(tokens[idx] ?? "")) {
+    const whole = parseNumberAt(tokens, idx);
+    if (!whole || !POINT_WORDS.has(tokens[idx + whole.length] ?? "")) return null;
+    intPart = whole.value;
+    idx += whole.length;
+  }
+  const frac = parseFractionDigits(tokens, idx + 1);
+  if (!frac) return null;
+  const value = Number(`${intPart}.${frac.digits}`);
+  return { value, length: idx + 1 + frac.length - i };
+}
