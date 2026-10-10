@@ -14,7 +14,126 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      count_aliases: {
+        Row: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id: string
+        }
+        Insert: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id?: string
+        }
+        Update: {
+          data?: Json
+          id?: string
+          updated_at?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      count_app_state: {
+        Row: {
+          active_id: string | null
+          user_id: string
+        }
+        Insert: {
+          active_id?: string | null
+          user_id?: string
+        }
+        Update: {
+          active_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      count_corrections: {
+        Row: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id: string
+        }
+        Insert: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id?: string
+        }
+        Update: {
+          data?: Json
+          id?: string
+          updated_at?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      count_sessions: {
+        Row: {
+          created_at: number
+          data: Json
+          edit_count: number | null
+          file_name: string | null
+          id: string
+          name: string | null
+          original_path: string | null
+          sheet_name: string | null
+          status: string | null
+          updated_at: number
+          user_id: string
+        }
+        Insert: {
+          created_at: number
+          data?: Json
+          edit_count?: number | null
+          file_name?: string | null
+          id: string
+          name?: string | null
+          original_path?: string | null
+          sheet_name?: string | null
+          status?: string | null
+          updated_at: number
+          user_id?: string
+        }
+        Update: {
+          created_at?: number
+          data?: Json
+          edit_count?: number | null
+          file_name?: string | null
+          id?: string
+          name?: string | null
+          original_path?: string | null
+          sheet_name?: string | null
+          status?: string | null
+          updated_at?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      count_unit_corrections: {
+        Row: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id: string
+        }
+        Insert: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id?: string
+        }
+        Update: {
+          data?: Json
+          id?: string
+          updated_at?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
