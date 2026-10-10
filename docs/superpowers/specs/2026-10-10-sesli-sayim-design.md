@@ -50,6 +50,11 @@ Referans dosya: `SERVANT_EYLUL_BAR_SAYIM.xlsx` (652 satır; kolonlar: Alt Grup, 
 - Yeterince eminse otomatik yazar. Emin değilse adayları gösterir; kullanıcı seçer.
 - Her seçim kaydedilir ("Mali bu" = `LQR MALIBU`). Sonraki seferlerde kayıtlı eşleşme önceliklidir.
 - Ürün adı eşleşmesi ile sayı çözümü birbirinden bağımsızdır.
+- **İngilizce marka adları (önemli):** Ürünlerin çoğu İngilizce marka (Jack Daniels, Malibu, Gentleman Jack...) ve kullanıcı bunları İngilizce söylüyor. Türkçe tanıma bunları bozuk yazıya çevirebilir.
+  - Eşleştirme yazıya değil okunuşa dayanır; "Cek Denyıls" ile "Jack Daniels" eşleşebilmelidir.
+  - Ses tanıma Türkçe ve İngilizce birlikte denenir (iki dilde de aynı kayıt çözülür, en güvenilir sonuç veya iki sonucun adayları birleştirilir). (Karar: ben)
+  - Her bozuk duyuşun doğru ürüne bağlanması takma ad olarak kaydedilir; ilk sayımlarda çok soracak, sonra azalacak.
+- **Excel'deki ön ekler söylenmez:** `LQR`, `WHY` gibi grup kısaltmaları ürün adından çıkarılarak eşleştirilir. Kullanıcı "Jack Daniels Apple" der, Excel'de `WHY JACK DANIELS APPLE` yazar. Aynı markanın varyantları (Apple, Honey, Fire, Bonded...) varsa sistem varyantı ayırt edemezse adayları gösterir.
 
 ### Sayı ve birim kuralları
 
