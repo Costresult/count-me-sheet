@@ -152,6 +152,14 @@ export function parseSheet(
     }
   }
 
+  // Simpra / Cost Result lists have one empty "Sayım Miktarı" column and no TOTAL column: that
+  // column becomes the total of the physical pages, which are added after it.
+  if (!columns.some((c) => c.kind === "total")) {
+    const qty = columns.find((c) => c.kind === "count" && /say[ıi]m\s*miktar/i.test(c.header));
+    const counts = columns.filter((c) => c.kind === "count");
+    if (qty && counts.length === 1) qty.kind = "total";
+  }
+
   // A sheet with no numeric-empty columns still needs entry columns:
   if (!columns.some((c) => c.kind === "count")) {
     for (const col of columns) {
@@ -191,6 +199,7 @@ export async function exportWithEdits(
   edits: Record<string, number | null>,
   added: AddedColumn[] = [],
   unmatched: UnmatchedExportRow[] = [],
+  formulas: Record<string, string> = {},
 ): Promise<{ blob: Blob; warning: string | null }> {
   const wb = await loadWorkbook(originalBuffer);
   const ws = wb.getWorksheet(sheetName);
@@ -208,8 +217,19 @@ export async function exportWithEdits(
   const n = added.length;
   /** original column number where new columns get inserted */
   const shift = new Map<string, number>();
+  // Simpra layout: the total column sits in front of the page columns and sums them.
+  const totalFirst = totals.length > 0 && (!lastCount || totals[0]!.colNumber < lastCount.colNumber);
 
-  if (n > 0) {
+  if (n > 0 && totalFirst) {
+    const insertIndex = (lastCount?.colNumber ?? totals[0]!.colNumber) + 1;
+    ws.spliceColumns(insertIndex, 0, ...added.map(() => [] as unknown[]));
+    added.forEach((a, i) => shift.set(a.id, insertIndex + i));
+    const headerRow = ws.getRow(parsed.headerRowNumber);
+    added.forEach((a) => {
+      headerRow.getCell(shift.get(a.id)!).value = a.header;
+    });
+    headerRow.commit?.();
+  } else if (n > 0) {
     const firstTotal = totals[0];
     const insertAt = firstTotal ? firstTotal.colNumber : maxCol + 1;
 
@@ -265,6 +285,10 @@ export async function exportWithEdits(
     }
     return col.colNumber;
   };
+  const numeric = (v: unknown): number => {
+    const x = typeof v === "number" ? v : Number(String(v ?? "").replace(",", "."));
+    return Number.isFinite(x) ? x : 0;
+  };
 
   for (const [key, value] of Object.entries(edits)) {
     const [rowId = "", colId = ""] = key.split("|");
@@ -276,7 +300,32 @@ export async function exportWithEdits(
     const cell = ws.getRow(row.rowNumber).getCell(colNumber);
     // never overwrite a formula
     if (cell.value && typeof cell.value === "object" && "formula" in cell.value) continue;
-    cell.value = value === null ? null : value;
+    const body = formulas[key];
+    cell.value = value === null ? null : body ? { formula: body, result: value } : value;
+  }
+
+  // ---- total column sums the page columns (E..last) when it sits in front of them ----
+  if (totalFirst) {
+    const pageCols = parsed.columns.filter((c) => c.kind === "count" || c.virtual);
+    const nums = pageCols.map((c) => finalCol(c.id)).filter((x): x is number => x !== null);
+    if (nums.length > 0) {
+      const first = colLetter(Math.min(...nums));
+      const last = colLetter(Math.max(...nums));
+      for (const row of parsed.rows) {
+        const sum = pageCols.reduce((acc, c) => {
+          const e = edits[`${row.id}|${c.id}`];
+          return acc + numeric(e === undefined ? row.cells[c.id]?.value : e);
+        }, 0);
+        for (const t of totals) {
+          const tc = finalCol(t.id);
+          if (!tc) continue;
+          ws.getRow(row.rowNumber).getCell(tc).value = {
+            formula: `SUM(${first}${row.rowNumber}:${last}${row.rowNumber})`,
+            result: Math.round(sum * 1e6) / 1e6,
+          };
+        }
+      }
+    }
   }
 
   // ---- unmatched products, appended after the original list ----
@@ -328,13 +377,22 @@ export function withAddedColumns(parsed: ParsedSheet | null, added: AddedColumn[
     }));
   if (extras.length === 0) return parsed;
   const firstTotalIdx = parsed.columns.findIndex((c) => c.kind === "total");
+  let lastCountIdx = -1;
+  parsed.columns.forEach((c, i) => {
+    if (c.kind === "count") lastCountIdx = i;
+  });
+  // total in front (Simpra layout): page columns follow the last count column, or the total
+  const insertAfter =
+    firstTotalIdx === -1 ? -1 : lastCountIdx > firstTotalIdx ? lastCountIdx : lastCountIdx === -1 ? firstTotalIdx : -1;
   const columns =
     firstTotalIdx === -1
       ? [...parsed.columns, ...extras]
-      : [
-          ...parsed.columns.slice(0, firstTotalIdx),
-          ...extras,
-          ...parsed.columns.slice(firstTotalIdx),
-        ];
+      : insertAfter >= 0
+        ? [...parsed.columns.slice(0, insertAfter + 1), ...extras, ...parsed.columns.slice(insertAfter + 1)]
+        : [
+            ...parsed.columns.slice(0, firstTotalIdx),
+            ...extras,
+            ...parsed.columns.slice(firstTotalIdx),
+          ];
   return { ...parsed, columns };
 }

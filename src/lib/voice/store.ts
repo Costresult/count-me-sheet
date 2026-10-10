@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { useCountMe } from "@/lib/countme/store";
 import { editKey } from "@/lib/countme/types";
+import { appendReading } from "@/lib/countme/calc";
 import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
@@ -333,7 +334,13 @@ export const useVoice = create<VoiceStore>((set, get) => {
     if (!delta) return false;
     const old = currentValue(ctx.rowId, ctx.columnId);
     const next = round6(old + delta);
-    cme().writeInventoryValue(ctx.rowId, ctx.columnId, next, "VOICE_AI");
+    cme().writeInventoryValue(
+      ctx.rowId,
+      ctx.columnId,
+      next,
+      "VOICE_AI",
+      appendReading(cme().formulas[editKey(ctx.rowId, ctx.columnId)], old, delta),
+    );
     voiceWrites.set(`${ctx.rowId}|${ctx.columnId}`, {
       rowId: ctx.rowId,
       columnId: ctx.columnId,

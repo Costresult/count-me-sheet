@@ -52,3 +52,14 @@ export function liveRowTotal(
 
 export const formatTotal = (n: number | null): string =>
   n === null ? "" : String(Math.round(n * 1e6) / 1e6);
+
+const fmtNum = (n: number): string => String(Math.round(n * 1e6) / 1e6);
+
+/**
+ * Formula body for a cell that receives another reading: "0.2" + 0.34 -> "0.2+0.34".
+ * `existing` is the cell's current formula body, `current` its current numeric value.
+ */
+export function appendReading(existing: string | undefined, current: number, delta: number): string {
+  const base = existing ?? fmtNum(current);
+  return delta < 0 ? `${base}${fmtNum(delta)}` : `${base}+${fmtNum(delta)}`;
+}

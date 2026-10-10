@@ -117,6 +117,8 @@ export interface StoredSession {
   sheetName: string | null;
   status: SessionStatus;
   edits: Record<string, number | null>;
+  /** per-cell spoken readings kept as a formula body, e.g. "0.2+0.34" (no leading =) */
+  formulas?: Record<string, string>;
   view: ViewPrefs;
   pages?: PageState;
   addedColumns?: AddedColumn[];
