@@ -1,5 +1,7 @@
 # Sesli Envanter Sayımı — Tasarım
 
+> **Güncelleme (uygulama):** Repoda önceki denemeden kalma çalışan bir uygulama ("Count Me In") vardı. Sıfırdan yazmak yerine bu tasarıma göre geliştirildi; ayrıntı için `docs/superpowers/plans/2026-10-10-sesli-sayim.md`.
+
 Durum: **onay bekliyor**. Onaydan önce uygulama kodu yazılmayacak.
 Not: "(Karar: ben)" ile işaretli yerler kullanıcının söylemediği, benim varsayımlarımdır.
 
@@ -61,7 +63,7 @@ Referans dosya: `SERVANT_EYLUL_BAR_SAYIM.xlsx` (652 satır; kolonlar: Alt Grup, 
 - Ürün adı eşleşmesi ile sayı çözümü birbirinden bağımsızdır.
 - **İngilizce marka adları (önemli):** Ürünlerin çoğu İngilizce marka (Jack Daniels, Malibu, Gentleman Jack...) ve kullanıcı bunları İngilizce söylüyor. Türkçe tanıma bunları bozuk yazıya çevirebilir.
   - Eşleştirme yazıya değil okunuşa dayanır; "Cek Denyıls" ile "Jack Daniels" eşleşebilmelidir.
-  - Ses tanıma Türkçe ve İngilizce birlikte denenir (iki dilde de aynı kayıt çözülür, en güvenilir sonuç veya iki sonucun adayları birleştirilir). (Karar: ben)
+  - ~~Ses tanıma Türkçe ve İngilizce birlikte denenir.~~ **Güncelleme:** Tarayıcının hazır ses tanıması aynı anda iki dili güvenilir çalıştıramıyor. Ses tanıma `tr-TR` kalır; İngilizce markalar okunuşa dayalı eşleştirme ve öğrenen takma adlarla çözülür. Yetmezse ücretli bulut ses tanımaya geçilir. (Karar: ben)
   - Her bozuk duyuşun doğru ürüne bağlanması takma ad olarak kaydedilir; ilk sayımlarda çok soracak, sonra azalacak.
 - **Ürün adındaki sayılar (önemli):** Excel'de adında sayı olan çok ürün var (127 ürün; örn. `WHY CHIVAS 12 YRS`, `CIN MONKEY 47 50 CL`, `COCA COLA 1 LT`). Kullanıcı "şivas oniki" der; "oniki" miktar değil, ürün adının parçasıdır.
   - Sayı çözümü, ürün adı eşleştirmesinden sonra çalışır: önce ürün adı (içindeki sayılarla birlikte) eşleştirilir, kalan kısım miktar olarak okunur.
