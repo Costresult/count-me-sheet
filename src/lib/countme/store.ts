@@ -208,6 +208,9 @@ function download(blob: Blob, filename: string) {
 
 const outName = (name: string) => `${name.replace(/\.xls[xm]$/i, "")}-countme.xlsx`;
 
+const SAVE_ERROR = "Buluta kaydedilemedi. İnternet bağlantınızı kontrol edin; otomatik tekrar denenecek.";
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useCountMe = create<CountMeState>((set, get) => {
   const snapshot = (): StoredSession | null => {
     const s = get();
@@ -234,9 +237,17 @@ export const useCountMe = create<CountMeState>((set, get) => {
   const flush = async () => {
     const session = snapshot();
     if (!session) return;
-    await saveSession(session);
-    set({ savedAt: session.updatedAt });
-    await get().refreshSessions();
+    try {
+      await saveSession(session);
+      if (retryTimer) clearTimeout(retryTimer);
+      set({ savedAt: session.updatedAt, ...(get().error === SAVE_ERROR ? { error: null } : {}) });
+      await get().refreshSessions();
+    } catch {
+      // keep the working copy in memory and try again; nothing is lost while the tab stays open
+      set({ error: SAVE_ERROR });
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => void flush(), 8000);
+    }
   };
 
   const persist = (immediate = false) => {
@@ -245,7 +256,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       void flush();
       return;
     }
-    saveTimer = setTimeout(() => void flush(), 400);
+    saveTimer = setTimeout(() => void flush(), 1200);
   };
 
   const applySession = async (session: StoredSession) => {
