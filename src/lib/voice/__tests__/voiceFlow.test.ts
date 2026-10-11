@@ -165,3 +165,31 @@ describe("suspicious litre amount in the popup", () => {
     expect(t.written()).toEqual([["ANANAS SUYU LITRE|LITRE", 0.52]]);
   });
 });
+
+describe("multiplication", () => {
+  const cell = (t: ReturnType<typeof setup>, name: string, unit: string) => {
+    const id = t.rowOf(name, unit);
+    const st = useCountMe.getState();
+    const col = st.pages.pageColumns[1]!;
+    return { value: st.edits[`${id}|${col}`], formula: st.formulas[`${id}|${col}`] };
+  };
+
+  it.each(["ananas suyu 18 litre çarpı 4", "ananas suyu 18 litre x 4 adet", "ananas suyu 18 litre çarpı 4 adet"])(
+    "'%s' -> 72 litres (=18*4)",
+    async (spoken) => {
+      const t = setup();
+      useVoice.getState().ingestTranscript(spoken);
+      await wait();
+      expect(cell(t, "ANANAS SUYU LITRE", "LITRE")).toEqual({ value: 72, formula: "18*4" });
+    },
+  );
+
+  it("adds a calculated amount to an occupied cell as one formula", async () => {
+    const t = setup();
+    useVoice.getState().ingestTranscript("ananas suyu 5 litre");
+    await wait();
+    useVoice.getState().ingestTranscript("ananas suyu 18 litre çarpı 4");
+    await wait();
+    expect(cell(t, "ANANAS SUYU LITRE", "LITRE")).toEqual({ value: 77, formula: "5+18*4" });
+  });
+});

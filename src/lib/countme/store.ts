@@ -174,6 +174,8 @@ interface CountMeState {
     page: number,
     value: number | null,
     source?: WriteSource,
+    /** how the value was calculated ("18*4"); shown in the cell and exported as an Excel formula */
+    formula?: string,
   ) => void;
   resolveConflict: (action: "replace" | "add" | "cancel" | boolean) => void;
 
@@ -764,7 +766,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
       return added.id;
     },
 
-    writePageValue: (rowId, page, value, source = "USER") => {
+    writePageValue: (rowId, page, value, source = "USER", formula) => {
       let columnId = pageColumnId(get().pages, page);
       // a new physical page gets its own count column automatically (E, F, G ...)
       if (!columnId && source !== "USER") columnId = get().addCountColumn(page);
@@ -790,7 +792,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
           columnId,
           sum,
           "VOICE_AI",
-          appendReading(formulas[key], Number.isFinite(base) ? base : 0, value),
+          appendReading(formulas[key], Number.isFinite(base) ? base : 0, value, formula),
         );
         return;
       }
@@ -814,6 +816,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
         columnId,
         value,
         source === "VOICE_AI" ? "VOICE_AI" : source === "SYSTEM" ? "SYSTEM" : "MANUAL",
+        formula,
       );
     },
 

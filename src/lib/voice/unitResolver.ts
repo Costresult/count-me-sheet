@@ -6,6 +6,8 @@ export interface ResolvedWrite {
   rowId: string;
   value: number;
   note: string;
+  /** how the value was calculated ("18*4"); kept in the cell so it can be checked later */
+  formula?: string;
 }
 
 export interface UnitResolution {
@@ -180,6 +182,29 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
 
   if (u.operation === "multiply" && terms.length >= 2) {
     const [a, b] = [terms[0]!, terms[1]!];
+
+    // "18 litre çarpı 4" / "2 kilo x 3 adet": a measure times a count is the measure's own unit
+    const isPackage = (t: SpokenTerm) => t.unit === "KOLI" || t.unit === "PAKET";
+    const isMeasure = (t: SpokenTerm) => t.unit !== null && familyOf(t.unit) !== "count";
+    const isCount = (t: SpokenTerm) => t.unit === null || familyOf(t.unit) === "count";
+    const measure = isMeasure(a) && isCount(b) && !isPackage(b) ? a : isMeasure(b) && isCount(a) && !isPackage(a) ? b : null;
+    if (measure) {
+      const total = round(a.quantity * b.quantity);
+      const res = resolveTerm(
+        rows,
+        { quantity: total, unit: measure.unit, spokenUnit: measure.spokenUnit },
+        u.bottleSizeCl,
+      );
+      if (res && "rowId" in res) {
+        return {
+          writes: [{ ...res, formula: `${a.quantity}*${b.quantity}` }],
+          ambiguousRows: null,
+          reason: "çarpım",
+        };
+      }
+      return { writes: [], ambiguousRows: rows, reason: "belirsiz" };
+    }
+
     const pkgTerm = b.unit && (b.unit === "KOLI" || b.unit === "PAKET") ? b : a;
     const perTerm = pkgTerm === b ? a : b;
     const pkgRow = pkgTerm.unit ? rows.filter((r) => r.unitInfo.unit === pkgTerm.unit) : [];

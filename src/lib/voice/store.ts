@@ -261,7 +261,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
   const optionLabel = (row: ProductRow) => row.label;
 
   const applyWrites = (
-    writes: { rowId: string; value: number; note: string; fixed?: boolean }[],
+    writes: { rowId: string; value: number; note: string; fixed?: boolean; formula?: string }[],
     u: ParsedUtterance,
     index: ProductRow[],
   ) => {
@@ -287,7 +287,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
         : learned
           ? learned.correctedValue
           : finalizeValue(w.rowId, u, w.value, index);
-      cme().writePageValue(w.rowId, page, value, "VOICE_AI");
+      cme().writePageValue(w.rowId, page, value, "VOICE_AI", w.formula);
       // Occupied cell → the store raised a REPLACE/ADD/CANCEL conflict; nothing
       // was written yet, so no context or learning record may be created.
       if (cme().conflict) {
