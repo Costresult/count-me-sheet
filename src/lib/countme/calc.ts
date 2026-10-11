@@ -59,9 +59,16 @@ const fmtNum = (n: number): string => String(Math.round(n * 1e6) / 1e6);
  * Formula body for a cell that receives another reading: "0.2" + 0.34 -> "0.2+0.34".
  * `existing` is the cell's current formula body, `current` its current numeric value.
  */
-export function appendReading(existing: string | undefined, current: number, delta: number): string {
+export function appendReading(
+  existing: string | undefined,
+  current: number,
+  delta: number,
+  /** how the added amount was calculated ("18*4"); defaults to the number itself */
+  deltaText?: string,
+): string {
   const base = existing ?? fmtNum(current);
-  return delta < 0 ? `${base}${fmtNum(delta)}` : `${base}+${fmtNum(delta)}`;
+  const text = deltaText ?? fmtNum(delta);
+  return delta < 0 && !deltaText ? `${base}${text}` : `${base}+${text}`;
 }
 
 /** "0.8+1.6" -> "0,8+1,6" (Turkish decimal comma) for display. */
