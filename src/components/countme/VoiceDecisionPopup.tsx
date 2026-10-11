@@ -1,12 +1,44 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useVoice } from "@/lib/voice/store";
 import { useCountMe } from "@/lib/countme/store";
 import { StockSearch } from "./StockSearch";
-import { ListPlus, Search, SkipForward, X } from "lucide-react";
+import { GripHorizontal, ListPlus, Search, SkipForward, X } from "lucide-react";
 
 const conf: Record<string, string> = { HIGH: "Yüksek", MEDIUM: "Orta", LOW: "Belirsiz" };
 
-/** Right-center decision popup – never auto-writes, the queue waits for it. */
+const POS_KEY = "countme-decision-popup-pos";
+type Pos = { x: number; y: number };
+
+const loadPos = (): Pos | null => {
+  try {
+    const raw = window.localStorage.getItem(POS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Pos;
+    return Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+  } catch {
+    return null;
+  }
+};
+
+const savePos = (p: Pos | null) => {
+  try {
+    if (p) window.localStorage.setItem(POS_KEY, JSON.stringify(p));
+    else window.localStorage.removeItem(POS_KEY);
+  } catch {
+    /* position is a convenience only */
+  }
+};
+
+/** Keeps at least the title bar on screen. */
+const clampPos = (p: Pos, width: number): Pos => ({
+  x: Math.min(Math.max(0, p.x), Math.max(0, window.innerWidth - Math.min(width, window.innerWidth))),
+  y: Math.min(Math.max(0, p.y), Math.max(0, window.innerHeight - 48)),
+});
+
+/**
+ * Decision popup – never auto-writes, the queue waits for it. Starts at the right edge; drag the
+ * title bar to put it anywhere on the page (remembered), double-click the title bar to reset.
+ */
 export function VoiceDecisionPopup() {
   const prompt = useVoice((s) => s.prompt);
   const choose = useVoice((s) => s.chooseCandidate);
@@ -16,6 +48,36 @@ export function VoiceDecisionPopup() {
   const skip = useVoice((s) => s.skipPrompt);
   const focusRow = useCountMe((s) => s.focusProductRow);
   const [searching, setSearching] = useState(false);
+  const [pos, setPos] = useState<Pos | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ dx: number; dy: number } | null>(null);
+
+  useEffect(() => {
+    setPos(loadPos());
+    const onResize = () => setPos((p) => (p ? clampPos(p, boxRef.current?.offsetWidth ?? 340) : p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    const rect = boxRef.current?.getBoundingClientRect();
+    drag.current = { dx: e.clientX - (rect?.left ?? 0), dy: e.clientY - (rect?.top ?? 0) };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onDragMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    setPos(clampPos({ x: e.clientX - drag.current.dx, y: e.clientY - drag.current.dy }, boxRef.current?.offsetWidth ?? 340));
+  };
+  const onDragEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    setPos((p) => {
+      savePos(p);
+      return p;
+    });
+  };
 
   useEffect(() => {
     setSearching(false);
@@ -25,11 +87,26 @@ export function VoiceDecisionPopup() {
 
   return (
     <div
+      ref={boxRef}
       data-testid="voice-decision-popup"
+      style={pos ? { left: pos.x, top: pos.y, right: "auto", transform: "none" } : undefined}
       className="pointer-events-auto fixed right-3 top-1/2 z-50 w-[min(92vw,340px)] -translate-y-1/2 rounded-lg border border-border bg-card p-3 shadow-2xl"
     >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-black uppercase tracking-wide text-primary">
+      <div
+        data-testid="voice-decision-handle"
+        title="Sürükleyerek taşıyın · çift tıklayınca eski yerine döner"
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        onDoubleClick={() => {
+          setPos(null);
+          savePos(null);
+        }}
+        className="-mx-3 -mt-3 flex cursor-grab touch-none select-none items-start justify-between gap-2 rounded-t-lg px-3 pt-3 active:cursor-grabbing"
+      >
+        <p className="flex items-center gap-1 text-[11px] font-black uppercase tracking-wide text-primary">
+          <GripHorizontal className="size-3.5 text-muted-foreground" />
           Eşleştirme Gerekiyor
         </p>
         <button
