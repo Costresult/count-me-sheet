@@ -88,3 +88,9 @@ describe("unit word that is part of the product name", () => {
     expect(route("sprite şişe 3 adet").writes).toEqual([["MESRUBAT ADET", 3]]);
   });
 });
+
+describe("recognizer spellings of a spoken amount", () => {
+  it.each(["ananas suyu.72", "ananas suyu 72'si yani", "ananas suyu nokta 72"])("%s -> 0.72 on the LİTRE row", (s) => {
+    expect(route(s).writes).toEqual([["MESRUBAT LITRE", 0.72]]);
+  });
+});

@@ -32,7 +32,7 @@ export interface ParsedUtterance {
 
 const PLUS = new Set(["arti", "plus", "+", "ve"]);
 const TIMES = new Set(["carpi", "x", "kere", "çarpı"]);
-const NOISE = new Set(["tane", "adetten", "den", "dan", "lik", "luk"]);
+const NOISE = new Set(["tane", "adetten", "den", "dan", "lik", "luk", "yani", "hemen", "sey", "iste"]);
 const MORE = new Set(["daha", "ekle"]);
 
 /** "35cl", "70CL", "250ml", "1.5lt" spoken as one glued token. */
@@ -54,6 +54,18 @@ function expandTokens(tokens: string[]): string[] {
     const hundreds = /^(iki|uc|dort|bes|alti|yedi|sekiz|dokuz)yuz$/.exec(t); // "beşyüz" -> "bes yuz"
     if (hundreds) {
       out.push(hundreds[1]!, "yuz");
+      continue;
+    }
+    // "72'si" is how the recognizer writes a spoken "72 cl" (…si-el)
+    const spokenCl = /^(\d+(?:[.,]\d+)?)(si|sel)$/.exec(t);
+    if (spokenCl) {
+      out.push(spokenCl[1]!, "cl");
+      continue;
+    }
+    // "pirinç.72" (a spoken "nokta 72" glued to the word): word + decimal
+    const gluedPoint = /^([a-z]+)[.,](\d+)$/.exec(t);
+    if (gluedPoint) {
+      out.push(gluedPoint[1]!, "nokta", gluedPoint[2]!);
       continue;
     }
     const frac = /^[.,](\d+)$/.exec(t);
