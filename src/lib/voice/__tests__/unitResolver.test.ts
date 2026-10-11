@@ -67,3 +67,18 @@ describe("lost or misheard centilitre unit", () => {
     expect(r.options).toEqual([["WHISKY LITRE", 0.42]]);
   });
 });
+
+describe("several measures in one sentence", () => {
+  it.each([
+    ["badem 1 kilo 500 gram", 1.5],
+    ["badem bir kilo beşyüz gram", 1.5],
+    ["badem bir kilo beş yüz gram", 1.5],
+    ["badem 2 kilo 250 gram", 2.25],
+  ])("%s -> %d kg", (s, kg) => {
+    expect(route(s).writes).toEqual([["CEREZ KILOGRAM", kg]]);
+  });
+
+  it("adds litres and centilitres", () => {
+    expect(route("ananas suyu 2 litre 50 cl").writes).toEqual([["MESRUBAT LITRE", 2.5]]);
+  });
+});
