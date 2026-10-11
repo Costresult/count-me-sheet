@@ -52,6 +52,8 @@ export interface CandidateOption {
   score: number;
   value: number;
   note: string;
+  /** alternative reading of the number; written as shown, never re-derived from the spoken unit */
+  fixed?: boolean;
 }
 
 export interface CandidatePrompt {
@@ -259,7 +261,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
   const optionLabel = (row: ProductRow) => row.label;
 
   const applyWrites = (
-    writes: { rowId: string; value: number; note: string }[],
+    writes: { rowId: string; value: number; note: string; fixed?: boolean }[],
     u: ParsedUtterance,
     index: ProductRow[],
   ) => {
@@ -280,7 +282,11 @@ export const useVoice = create<VoiceStore>((set, get) => {
         term && !deterministicUnit
           ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
           : null;
-      const value = learned ? learned.correctedValue : finalizeValue(w.rowId, u, w.value, index);
+      const value = w.fixed
+        ? w.value
+        : learned
+          ? learned.correctedValue
+          : finalizeValue(w.rowId, u, w.value, index);
       cme().writePageValue(w.rowId, page, value, "VOICE_AI");
       // Occupied cell → the store raised a REPLACE/ADD/CANCEL conflict; nothing
       // was written yet, so no context or learning record may be created.
@@ -531,21 +537,23 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     const options: CandidateOption[] = [];
     const seen = new Set<string>();
-    const push = (row: ProductRow, value: number, note: string, score: number) => {
-      if (seen.has(row.rowId)) return;
-      seen.add(row.rowId);
+    const push = (row: ProductRow, value: number, note: string, score: number, fixed = false) => {
+      const key = `${row.rowId}|${value}`;
+      if (seen.has(key)) return;
+      seen.add(key);
       // options must preview the *normalized* number the cell will receive
       options.push({
         rowId: row.rowId,
         label: optionLabel(row),
         score,
-        value: finalizeValue(row.rowId, u, value, index),
+        value: fixed ? value : finalizeValue(row.rowId, u, value, index),
         note,
+        ...(fixed ? { fixed: true } : {}),
       });
     };
 
     if (productConfidence === "HIGH") {
-      for (const o of destination.options) push(o.row, o.value, o.note, match.best.score);
+      for (const o of destination.options) push(o.row, o.value, o.note, match.best.score, o.fixed);
       if (options.length === 0)
         for (const r of bestRows) push(r, u.terms[0]?.quantity ?? 0, r.unitText, match.best.score);
     } else {
@@ -652,7 +660,12 @@ export const useVoice = create<VoiceStore>((set, get) => {
   };
 
   /** Applies an explicit user decision: write, focus, learn, resume queue. */
-  const commitChoice = async (prompt: CandidatePrompt, rowId: string, value: number) => {
+  const commitChoice = async (
+    prompt: CandidatePrompt,
+    rowId: string,
+    value: number,
+    fixed = false,
+  ) => {
     clearPendingContext();
     set({ state: capture ? "LISTENING" : "IDLE" });
     const parsed = cme().parsed;
@@ -678,7 +691,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
           ? "öneriden farklı seçim"
           : "öneri onaylandı",
     });
-    applyWrites([{ rowId: row.rowId, value, note: "kullanıcı seçimi" }], u, catalogue);
+    applyWrites([{ rowId: row.rowId, value, note: "kullanıcı seçimi", fixed }], u, catalogue);
 
     // product alias is learned; the unit/package choice stays context-specific
     if (u.productText) {
@@ -812,7 +825,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       const prompt = get().prompt;
       const option = prompt?.options[index];
       if (!prompt || !option) return;
-      await commitChoice(prompt, option.rowId, option.value);
+      await commitChoice(prompt, option.rowId, option.value, option.fixed === true);
     },
 
     chooseRow: async (rowId) => {
