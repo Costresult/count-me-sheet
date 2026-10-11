@@ -63,3 +63,6 @@ export function appendReading(existing: string | undefined, current: number, del
   const base = existing ?? fmtNum(current);
   return delta < 0 ? `${base}${fmtNum(delta)}` : `${base}+${fmtNum(delta)}`;
 }
+
+/** "0.8+1.6" -> "0,8+1,6" (Turkish decimal comma) for display. */
+export const formatFormula = (body: string): string => body.replace(/\./g, ",");

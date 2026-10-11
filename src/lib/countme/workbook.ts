@@ -302,6 +302,8 @@ export async function exportWithEdits(
     if (cell.value && typeof cell.value === "object" && "formula" in cell.value) continue;
     const body = formulas[key];
     cell.value = value === null ? null : body ? { formula: body, result: value } : value;
+    // cells holding several readings are red in Excel too, so they are easy to check
+    if (body) cell.font = { ...(cell.font ?? {}), color: { argb: "FFDC2626" } };
   }
 
   // ---- total column sums the page columns (E..last) when it sits in front of them ----

@@ -56,6 +56,8 @@ describe("Simpra layout export", () => {
     expect(ws.getCell("E1").value).toBe("Sayım 1");
     expect(ws.getCell("F1").value).toBe("Sayım 2");
     expect(ws.getCell("E2").value).toMatchObject({ formula: "0.2+0.34" });
+    expect(ws.getCell("E2").font?.color?.argb).toBe("FFDC2626");
+    expect(ws.getCell("F2").font?.color?.argb).not.toBe("FFDC2626");
     expect(ws.getCell("F2").value).toBe(0.1);
     expect(ws.getCell("D2").value).toMatchObject({ formula: "SUM(E2:F2)" });
     expect(ws.getCell("D3").value).toMatchObject({ formula: "SUM(E3:F3)" });
