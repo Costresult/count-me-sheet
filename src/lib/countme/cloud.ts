@@ -2,12 +2,13 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 
 /** Document tables used for learned data (aliases, corrections, unit corrections). */
-export type DocStore = "aliases" | "corrections" | "unitmap";
+export type DocStore = "aliases" | "corrections" | "unitmap" | "voicelog";
 
 const TABLES = {
   aliases: "count_aliases",
   corrections: "count_corrections",
   unitmap: "count_unit_corrections",
+  voicelog: "count_voice_log",
 } as const;
 
 export const BUCKET = "count-originals";
@@ -46,6 +47,16 @@ export const cloudDocs = {
     const { error } = await supabase
       .from(TABLES[store])
       .upsert({ id: value.id, data: value as unknown as Json, updated_at: Date.now() }, { onConflict: "user_id,id" });
+    if (error) throw error;
+  },
+
+  async putMany<T extends { id: string }>(store: DocStore, values: T[]): Promise<void> {
+    if (values.length === 0) return;
+    const now = Date.now();
+    const { error } = await supabase.from(TABLES[store]).upsert(
+      values.map((v) => ({ id: v.id, data: v as unknown as Json, updated_at: now })),
+      { onConflict: "user_id,id" },
+    );
     if (error) throw error;
   },
 

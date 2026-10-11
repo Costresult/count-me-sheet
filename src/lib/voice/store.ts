@@ -21,6 +21,7 @@ import {
 } from "./aliases";
 import { primeMicrophone, SpeechCapture, speechSupported } from "./speech";
 import { unitLabel, unitFromToken } from "./units";
+import { logVoice, type VoiceLogKind, type VoiceLogRecord } from "./log";
 
 export type VoiceState =
   | "IDLE"
@@ -107,7 +108,8 @@ interface VoiceStore {
   toggleListening: () => void;
 }
 
-const uid = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const uid = (p: string) =>
+  `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 let capture: SpeechCapture | null = null;
 const queue: string[] = [];
@@ -157,7 +159,19 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const cme = () => useCountMe.getState();
 
-  const pushEntry = (e: Omit<TranscriptEntry, "id" | "timestamp" | "sessionId">) => {
+  const LOG_KIND: Record<TranscriptEntry["outcome"], VoiceLogKind> = {
+    written: "matched",
+    candidates: "asked",
+    unmatched: "unmatched",
+    command: "command",
+    ignored: "ignored",
+    skipped: "skipped",
+  };
+
+  const pushEntry = (
+    e: Omit<TranscriptEntry, "id" | "timestamp" | "sessionId">,
+    extra: Partial<Pick<VoiceLogRecord, "productText" | "suggested" | "value" | "candidates">> = {},
+  ) => {
     const entry: TranscriptEntry = {
       ...e,
       id: uid("t"),
@@ -165,6 +179,14 @@ export const useVoice = create<VoiceStore>((set, get) => {
       sessionId: cme().activeId,
     };
     set({ entries: [entry, ...get().entries].slice(0, 40) });
+    logVoice({
+      sessionId: entry.sessionId,
+      kind: e.outcome === "ignored" && /iptal/.test(e.detail) ? "cancelled" : LOG_KIND[e.outcome],
+      heard: e.rawTranscript,
+      page: e.physicalPage,
+      note: e.detail || undefined,
+      ...extra,
+    });
   };
 
   const canWrite = () => {
@@ -209,7 +231,12 @@ export const useVoice = create<VoiceStore>((set, get) => {
    * single spoken term with a unit, the number is recomputed from
    * (quantity, spokenUnit, targetRowUnit) right before the cell write.
    */
-  const finalizeValue = (rowId: string, u: ParsedUtterance, proposed: number, index: ProductRow[]) => {
+  const finalizeValue = (
+    rowId: string,
+    u: ParsedUtterance,
+    proposed: number,
+    index: ProductRow[],
+  ) => {
     const row = index.find((r) => r.rowId === rowId);
     const term = u.terms.length === 1 && u.operation === "single" ? u.terms[0]! : null;
     if (!row || !term || !term.unit) return proposed;
@@ -238,6 +265,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
   ) => {
     const page = cme().pages.activePage;
     const names: string[] = [];
+    let lastValue: number | null = null;
     for (const w of writes) {
       const row = index.find((r) => r.rowId === w.rowId);
       const term = u.terms[0] ?? null;
@@ -248,9 +276,10 @@ export const useVoice = create<VoiceStore>((set, get) => {
       // for that row forever. Learned corrections only apply where the mapping is
       // genuinely ambiguous (no spoken unit, or a count/package guess).
       const deterministicUnit = term?.unit ? familyOf(term.unit) !== "count" : false;
-      const learned = term && !deterministicUnit
-        ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
-        : null;
+      const learned =
+        term && !deterministicUnit
+          ? findUnitCorrection(get().corrections, w.rowId, term.spokenUnit, term.quantity)
+          : null;
       const value = learned ? learned.correctedValue : finalizeValue(w.rowId, u, w.value, index);
       cme().writePageValue(w.rowId, page, value, "VOICE_AI");
       // Occupied cell → the store raised a REPLACE/ADD/CANCEL conflict; nothing
@@ -290,14 +319,18 @@ export const useVoice = create<VoiceStore>((set, get) => {
         timestamp: Date.now(),
       };
       names.push(`${row?.label ?? w.rowId} = ${value}${learned ? " (öğrenilen düzeltme)" : ""}`);
+      lastValue = value;
     }
-    pushEntry({
-      rawTranscript: u.rawTranscript,
-      normalizedTranscript: u.normalizedTranscript,
-      physicalPage: page,
-      outcome: "written",
-      detail: names.join(" · "),
-    });
+    pushEntry(
+      {
+        rawTranscript: u.rawTranscript,
+        normalizedTranscript: u.normalizedTranscript,
+        physicalPage: page,
+        outcome: "written",
+        detail: names.join(" · "),
+      },
+      { productText: u.productText, suggested: names.join(" · "), value: lastValue },
+    );
   };
 
   /** Current value of a cell in the working copy (edits win over the sheet). */
@@ -306,7 +339,9 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const key = editKey(rowId, columnId);
     const edited = (c.edits as Record<string, number | null>)[key];
     const raw =
-      edited !== undefined ? edited : c.parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null;
+      edited !== undefined
+        ? edited
+        : (c.parsed?.rows.find((r) => r.id === rowId)?.cells[columnId]?.value ?? null);
     const n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(",", "."));
     return Number.isFinite(n) ? n : 0;
   };
@@ -393,13 +428,16 @@ export const useVoice = create<VoiceStore>((set, get) => {
       u.rawTranscript,
       "VOICE_AI",
     );
-    pushEntry({
-      rawTranscript: u.rawTranscript,
-      normalizedTranscript: u.normalizedTranscript,
-      physicalPage: page,
-      outcome: "unmatched",
-      detail,
-    });
+    pushEntry(
+      {
+        rawTranscript: u.rawTranscript,
+        normalizedTranscript: u.normalizedTranscript,
+        physicalPage: page,
+        outcome: "unmatched",
+        detail,
+      },
+      { productText: u.productText, value: first ? first.quantity : null },
+    );
   };
 
   const handleCommand = (raw: string): boolean => {
@@ -508,7 +546,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     if (productConfidence === "HIGH") {
       for (const o of destination.options) push(o.row, o.value, o.note, match.best.score);
-      if (options.length === 0) for (const r of bestRows) push(r, u.terms[0]?.quantity ?? 0, r.unitText, match.best.score);
+      if (options.length === 0)
+        for (const r of bestRows) push(r, u.terms[0]?.quantity ?? 0, r.unitText, match.best.score);
     } else {
       for (const c of candidateGroups(match.candidates).slice(0, 4)) {
         const rows = groupRows(index, c.row.groupKey);
@@ -544,21 +583,28 @@ export const useVoice = create<VoiceStore>((set, get) => {
         unitConfidence: destination.confidence,
         productScore: match.best.score,
         productLabel: productConfidence === "HIGH" ? match.best.row.name : null,
-        question:
-          productConfidence === "HIGH" ? "Nereye yazayım?" : "Hangi ürün ve satır?",
+        question: productConfidence === "HIGH" ? "Nereye yazayım?" : "Hangi ürün ve satır?",
         options,
         aiBestRowId: match.best.row.rowId,
         kind: productConfidence === "HIGH" ? "unit" : "product",
       },
     });
     armPromptTimeout();
-    pushEntry({
-      rawTranscript: raw,
-      normalizedTranscript: u.normalizedTranscript,
-      physicalPage: cme().pages.activePage,
-      outcome: "candidates",
-      detail: productConfidence === "HIGH" ? "birim seçimi bekleniyor" : "ürün seçimi bekleniyor",
-    });
+    pushEntry(
+      {
+        rawTranscript: raw,
+        normalizedTranscript: u.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "candidates",
+        detail: productConfidence === "HIGH" ? "birim seçimi bekleniyor" : "ürün seçimi bekleniyor",
+      },
+      {
+        productText: u.productText,
+        suggested: options[0]?.label,
+        value: options[0]?.value ?? null,
+        candidates: options.map((o) => `${o.label} = ${o.value}`),
+      },
+    );
   };
 
   const drain = async () => {
@@ -617,6 +663,21 @@ export const useVoice = create<VoiceStore>((set, get) => {
     const u = prompt.utterance;
 
     cme().focusProductRow(row.rowId);
+    logVoice({
+      sessionId: cme().activeId,
+      kind: "chosen",
+      heard: u.rawTranscript,
+      productText: u.productText,
+      page: cme().pages.activePage,
+      suggested: prompt.options[0]?.label,
+      chosen: row.label,
+      value,
+      candidates: prompt.options.map((o) => `${o.label} = ${o.value}`),
+      note:
+        prompt.aiBestRowId && prompt.aiBestRowId !== row.rowId
+          ? "öneriden farklı seçim"
+          : "öneri onaylandı",
+    });
     applyWrites([{ rowId: row.rowId, value, note: "kullanıcı seçimi" }], u, catalogue);
 
     // product alias is learned; the unit/package choice stays context-specific
@@ -785,13 +846,16 @@ export const useVoice = create<VoiceStore>((set, get) => {
       if (!prompt) return;
       clearPendingContext();
       set({ state: capture ? "LISTENING" : "IDLE" });
-      pushEntry({
-        rawTranscript: prompt.utterance.rawTranscript,
-        normalizedTranscript: prompt.utterance.normalizedTranscript,
-        physicalPage: cme().pages.activePage,
-        outcome: "skipped",
-        detail: "atlandı",
-      });
+      pushEntry(
+        {
+          rawTranscript: prompt.utterance.rawTranscript,
+          normalizedTranscript: prompt.utterance.normalizedTranscript,
+          physicalPage: cme().pages.activePage,
+          outcome: "skipped",
+          detail: "atlandı",
+        },
+        { productText: prompt.utterance.productText, suggested: prompt.options[0]?.label },
+      );
       void drain();
     },
 
@@ -828,7 +892,12 @@ export const useVoice = create<VoiceStore>((set, get) => {
         get().pauseListening(false);
         return;
       }
-      if (st === "PAUSED" || st === "PAUSED_BY_USER" || st === "WAITING_FOR_USER" || st === "CANCELLED") {
+      if (
+        st === "PAUSED" ||
+        st === "PAUSED_BY_USER" ||
+        st === "WAITING_FOR_USER" ||
+        st === "CANCELLED"
+      ) {
         // never resolves an open decision: only capture restarts
         if (get().prompt) {
           set({ error: null });
