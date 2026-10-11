@@ -57,3 +57,22 @@ describe("page writes", () => {
     expect(st.formulas[editKey(rowId, col)]).toBeUndefined();
   });
 });
+
+describe("page navigation", () => {
+  it("opens a count column for every page you move to, even when pages are skipped", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("InventoryCounts");
+    ws.addRow(["Alt Grup", "Stok Malı", "Birim", "Sayım Miktarı", null]);
+    ws.addRow(["A", "ADACAYI", "KILOGRAM", null, 2]);
+    const parsed = parseSheet(ws);
+    useCountMe.setState({ parsed, pages: derivePages(parsed), edits: {}, formulas: {}, addedColumns: [], undoStack: [] });
+    expect(Object.values(useCountMe.getState().pages.pageColumns).filter(Boolean)).toHaveLength(2);
+
+    useCountMe.getState().setActivePage(4);
+    const cols = useCountMe.getState().pages.pageColumns;
+    expect(cols[3]).toBeTruthy();
+    expect(cols[4]).toBeTruthy();
+    expect(new Set([cols[1], cols[2], cols[3], cols[4]]).size).toBe(4);
+    expect(useCountMe.getState().addedColumns).toHaveLength(2);
+  });
+});
