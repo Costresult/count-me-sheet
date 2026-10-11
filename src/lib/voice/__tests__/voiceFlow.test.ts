@@ -116,3 +116,39 @@ describe("voice log", () => {
     expect(csv).toContain('"foo; bar"');
   });
 });
+
+describe("adding to an occupied cell on the same page", () => {
+  const cellOf = (t: ReturnType<typeof setup>, name: string, unit: string) => {
+    const id = t.rowOf(name, unit);
+    const st = useCountMe.getState();
+    const col = st.pages.pageColumns[1]!;
+    return { value: st.edits[`${id}|${col}`], formula: st.formulas[`${id}|${col}`] };
+  };
+
+  it.each([
+    ["malibu nokta otuz dört", 0.54, "0.2+0.34"],
+    ["artı nokta otuz dört", 0.54, "0.2+0.34"],
+    ["+ nokta otuz dört", 0.54, "0.2+0.34"],
+    ["malibu artı nokta otuz dört", 0.54, "0.2+0.34"],
+  ])("'malibu nokta iki' then '%s' -> %d (=%s)", async (second, total, formula) => {
+    const t = setup();
+    useVoice.getState().ingestTranscript("malibu nokta iki");
+    await wait();
+    useVoice.getState().ingestTranscript(second);
+    await wait();
+    const cell = cellOf(t, "LQR MALIBU", "LITRE");
+    expect(cell.value).toBeCloseTo(total, 6);
+    expect(cell.formula).toBe(formula);
+  });
+
+  it("keeps adding: three readings become one formula", async () => {
+    const t = setup();
+    for (const s of ["malibu nokta iki", "malibu nokta bir", "artı nokta üç"]) {
+      useVoice.getState().ingestTranscript(s);
+      await wait();
+    }
+    const cell = cellOf(t, "LQR MALIBU", "LITRE");
+    expect(cell.value).toBeCloseTo(0.6, 6);
+    expect(cell.formula).toBe("0.2+0.1+0.3");
+  });
+});
