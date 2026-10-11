@@ -38,18 +38,28 @@ export function normalizeForTargetUnit(
 
   if (src === "volume" && dst === "volume") {
     const cl = toCl(quantity, sourceUnit);
-    return t === "L" ? { value: round(cl / 100), note: "cl→litre" } : { value: round(cl), note: "litre→cl" };
+    return t === "L"
+      ? { value: round(cl / 100), note: "cl→litre" }
+      : { value: round(cl), note: "litre→cl" };
   }
   if (src === "weight" && dst === "weight") {
     const g = toGram(quantity, sourceUnit);
-    return t === "KG" ? { value: round(g / 1000), note: "gram→kg" } : { value: round(g), note: "kg→gram" };
+    return t === "KG"
+      ? { value: round(g / 1000), note: "gram→kg" }
+      : { value: round(g), note: "kg→gram" };
   }
   // spoken volume/weight landing on a sized package row → number of packages
   if (src === "volume" && dst === "count" && target.sizeCl) {
-    return { value: round(toCl(quantity, sourceUnit) / target.sizeCl), note: `${target.sizeCl} cl paket` };
+    return {
+      value: round(toCl(quantity, sourceUnit) / target.sizeCl),
+      note: `${target.sizeCl} cl paket`,
+    };
   }
   if (src === "weight" && dst === "count" && target.sizeGr) {
-    return { value: round(toGram(quantity, sourceUnit) / target.sizeGr), note: `${target.sizeGr} gr paket` };
+    return {
+      value: round(toGram(quantity, sourceUnit) / target.sizeGr),
+      note: `${target.sizeGr} gr paket`,
+    };
   }
   return { value: round(quantity), note: `${sourceUnit}→${t}` };
 }
@@ -60,6 +70,8 @@ export interface DestinationOption {
   row: ProductRow;
   value: number;
   note: string;
+  /** an alternative reading of the number: must not be re-derived from the spoken unit */
+  fixed?: boolean;
 }
 
 export interface Destination {
@@ -170,8 +182,7 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
     const [a, b] = [terms[0]!, terms[1]!];
     const pkgTerm = b.unit && (b.unit === "KOLI" || b.unit === "PAKET") ? b : a;
     const perTerm = pkgTerm === b ? a : b;
-    const pkgRow =
-      pkgTerm.unit ? rows.filter((r) => r.unitInfo.unit === pkgTerm.unit) : [];
+    const pkgRow = pkgTerm.unit ? rows.filter((r) => r.unitInfo.unit === pkgTerm.unit) : [];
     const exactPkg = pkgRow.find(
       (r) => r.unitInfo.perPackage === null || r.unitInfo.perPackage === perTerm.quantity,
     );
@@ -183,7 +194,11 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
       };
     }
     const total = round(a.quantity * b.quantity);
-    const res = resolveTerm(rows, { quantity: total, unit: "ADET", spokenUnit: "adet" }, u.bottleSizeCl);
+    const res = resolveTerm(
+      rows,
+      { quantity: total, unit: "ADET", spokenUnit: "adet" },
+      u.bottleSizeCl,
+    );
     if (res && "rowId" in res) return { writes: [res], ambiguousRows: null, reason: "çarpım" };
     return { writes: [], ambiguousRows: rows, reason: "belirsiz" };
   }
@@ -209,7 +224,8 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
     for (const t of terms) {
       const res = resolveTerm(rows, t, u.bottleSizeCl);
       if (!res) continue;
-      if ("ambiguous" in res) return { writes: [], ambiguousRows: res.ambiguous, reason: "belirsiz" };
+      if ("ambiguous" in res)
+        return { writes: [], ambiguousRows: res.ambiguous, reason: "belirsiz" };
       const dup = writes.find((w) => w.rowId === res.rowId);
       if (dup) dup.value = round(dup.value + res.value);
       else writes.push(res);
@@ -248,7 +264,11 @@ function classify(
       return { kind: "exact", value: round(q), note: unitLabelNote(info.unit) };
     }
     // no spoken unit: nothing is a strong signal
-    return { kind: "weak", value: round(q), note: info.unit ? unitLabelNote(info.unit) : "birimsiz" };
+    return {
+      kind: "weak",
+      value: round(q),
+      note: info.unit ? unitLabelNote(info.unit) : "birimsiz",
+    };
   }
 
   // package/size interpretation: "25 gram" -> one "PAKET 25 GR".
@@ -256,7 +276,12 @@ function classify(
   // row is a real weight row even when its name mentions a package size.
   const fam = familyOf(unit);
   const packageRow = info.unit !== null && familyOf(info.unit) === "count";
-  if (packageRow && fam === "weight" && info.sizeGr !== null && near(toGram(q, unit), info.sizeGr)) {
+  if (
+    packageRow &&
+    fam === "weight" &&
+    info.sizeGr !== null &&
+    near(toGram(q, unit), info.sizeGr)
+  ) {
     return { kind: "package", value: 1, note: `1 × ${info.sizeGr} gr paket` };
   }
   if (packageRow && fam === "volume" && info.sizeCl !== null && near(toCl(q, unit), info.sizeCl)) {
@@ -282,7 +307,8 @@ function classify(
   }
 
   // a spoken count unit landing on a sized bottle row of the right shape
-  if (unit === "SISE" && info.unit === "SISE") return { kind: "exact", value: round(q), note: "şişe" };
+  if (unit === "SISE" && info.unit === "SISE")
+    return { kind: "exact", value: round(q), note: "şişe" };
   if (unit === "ADET" && info.unit === "SISE" && info.sizeCl !== null)
     return { kind: "weak", value: round(q), note: "adet→şişe" };
 
@@ -294,7 +320,44 @@ function unitLabelNote(u: UnitCode): string {
 }
 
 /** Resolves where a single-term utterance must be written, with confidence. */
+/** A single LİTRE cell this large almost always means a mis-heard number ("52 cl" heard as 520). */
+const SUSPICIOUS_LITRES = 5;
+
+/**
+ * Resolves the destination, but never auto-writes a centilitre amount that lands on a LİTRE row as
+ * SUSPICIOUS_LITRES or more: it is proposed together with the likelier reading (a tenth of it).
+ */
 export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Destination {
+  const d = resolveDestinationRaw(rows, u);
+  const term = u.terms[0];
+  const w = d.writes[0];
+  if (
+    d.writes.length !== 1 ||
+    d.confidence !== "HIGH" ||
+    !w ||
+    u.terms.length !== 1 ||
+    term?.unit !== "CL"
+  )
+    return d;
+  const row = rows.find((r) => r.rowId === w.rowId);
+  if (!row || row.unitInfo.unit !== "L" || w.value < SUSPICIOUS_LITRES) return d;
+  return {
+    writes: [],
+    confidence: "MEDIUM",
+    options: [
+      { row, value: w.value, note: `${term.quantity} cl` },
+      {
+        row,
+        value: round(w.value / 10),
+        note: `${round(term.quantity / 10)} cl olabilir`,
+        fixed: true,
+      },
+    ],
+    reason: "olağandışı büyük litre",
+  };
+}
+
+function resolveDestinationRaw(rows: ProductRow[], u: ParsedUtterance): Destination {
   if (rows.length === 0) return { writes: [], confidence: "LOW", options: [], reason: "satır yok" };
   if (u.terms.length === 0)
     return { writes: [], confidence: "LOW", options: [], reason: "miktar yok" };
@@ -321,7 +384,13 @@ export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Dest
       return {
         writes: [],
         confidence: "MEDIUM",
-        options: [{ row: litreRow, value: round(term.quantity / 100), note: `${term.quantity} cl varsayıldı` }],
+        options: [
+          {
+            row: litreRow,
+            value: round(term.quantity / 100),
+            note: `${term.quantity} cl varsayıldı`,
+          },
+        ],
         reason: "büyük birimsiz sayı",
       };
     }
@@ -336,7 +405,13 @@ export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Dest
       return {
         writes: [],
         confidence: "MEDIUM",
-        options: [{ row: litreRows[0]!, value: round((term.quantity * cl) / 100), note: `${cl} cl şişe→litre` }],
+        options: [
+          {
+            row: litreRows[0]!,
+            value: round((term.quantity * cl) / 100),
+            note: `${cl} cl şişe→litre`,
+          },
+        ],
         reason: "şişe satırı yok",
       };
     }

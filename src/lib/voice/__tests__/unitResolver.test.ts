@@ -94,3 +94,19 @@ describe("recognizer spellings of a spoken amount", () => {
     expect(route(s).writes).toEqual([["MESRUBAT LITRE", 0.72]]);
   });
 });
+
+describe("implausibly large litre amounts", () => {
+  it("asks instead of writing 5.2 litres, and offers the likelier 0.52", () => {
+    const r = route("ananas suyu 520 cl");
+    expect(r.writes).toEqual([]);
+    expect(r.options).toEqual([
+      ["MESRUBAT LITRE", 5.2],
+      ["MESRUBAT LITRE", 0.52],
+    ]);
+  });
+
+  it("still writes ordinary amounts directly", () => {
+    expect(route("ananas suyu 52 cl").writes).toEqual([["MESRUBAT LITRE", 0.52]]);
+    expect(route("ananas suyu 4 litre").writes).toEqual([["MESRUBAT LITRE", 4]]);
+  });
+});

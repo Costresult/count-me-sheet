@@ -152,3 +152,16 @@ describe("adding to an occupied cell on the same page", () => {
     expect(cell.formula).toBe("0.2+0.1+0.3");
   });
 });
+
+describe("suspicious litre amount in the popup", () => {
+  it("lists both readings and writes the one the user picks", async () => {
+    const t = setup();
+    useVoice.getState().ingestTranscript("ananas suyu 520 cel");
+    await wait();
+    const opts = useVoice.getState().prompt?.options ?? [];
+    expect(opts.map((o) => o.value)).toEqual([5.2, 0.52]);
+    await useVoice.getState().chooseCandidate(1);
+    await wait();
+    expect(t.written()).toEqual([["ANANAS SUYU LITRE|LITRE", 0.52]]);
+  });
+});
