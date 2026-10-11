@@ -39,3 +39,23 @@ describe("product matching on the September workbook", () => {
     expect(matchProduct(index, "coca cola 1 lt").best?.row.name).toBe("COCA COLA 1 LT");
   });
 });
+
+describe("recognizer punctuation and spoken name numbers", () => {
+  const route = (spoken: string) => {
+    const { match, utterance } = matchProductWithNameNumber(index, parseUtterance(spoken));
+    return { name: match.best?.row.name, terms: utterance.terms };
+  };
+
+  it.each(["Chivas 13 34 CL.", "Chivas 13, 34 cl.", "chivas 13 34 cl,", "Chivas 13 34 cl"])(
+    "%s -> Chivas 13 Extra, 34 cl",
+    (s) => {
+      const r = route(s);
+      expect(r.name).toBe("WHY CHIVAS 13 EXTRA");
+      expect(r.terms[0]).toMatchObject({ quantity: 34, unit: "CL" });
+    },
+  );
+
+  it("reads 'on üç' in a product name as 13", () => {
+    expect(route("chivas on üç 34 cl").name).toBe("WHY CHIVAS 13 EXTRA");
+  });
+});

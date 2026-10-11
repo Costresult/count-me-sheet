@@ -155,11 +155,25 @@ const GLUED_TENS_ONES = new RegExp(
   `^(${Object.keys(TENS).join("|")})(${Object.keys(ONES).filter((k) => k !== "sifir").join("|")})?$`,
 );
 
-/** Product-name numbers spoken as one word ("oniki", "onsekiz", "yirmibes") become digits. */
+/**
+ * Product-name numbers spoken as words become digits: "oniki" / "on iki" -> 12,
+ * "on üç" -> 13, "yirmi beş" -> 25. Lone small words ("on", "iki") are left alone.
+ */
 export function digitizeGluedNumbers(tokens: string[]): string[] {
-  return tokens.map((t) => {
-    const m = GLUED_TENS_ONES.exec(t);
-    if (!m || !m[2]) return t;
-    return String(TENS[m[1]!]! + ONES[m[2]]!);
-  });
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    const glued = GLUED_TENS_ONES.exec(t);
+    if (glued?.[2]) {
+      out.push(String(TENS[glued[1]!]! + ONES[glued[2]]!));
+      continue;
+    }
+    if (t in TENS && tokens[i + 1] && tokens[i + 1]! in ONES && ONES[tokens[i + 1]!]! > 0) {
+      out.push(String(TENS[t]! + ONES[tokens[i + 1]!]!));
+      i++;
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
 }

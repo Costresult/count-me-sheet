@@ -750,7 +750,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
           return m ? Number(m[1]) : 0;
         });
       const nextNum = Math.max(0, ...existingNums, parsed.columns.filter((c) => c.kind === "count").length) + 1;
-      const added: AddedColumn = { id: `v${Date.now().toString(36)}`, header: `Sayım ${nextNum}` };
+      const added: AddedColumn = { id: `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, header: `Sayım ${nextNum}` };
       const nextAdded = [...addedColumns, added];
       const nextParsed = withAddedColumns(parsed, [added]);
       set({ addedColumns: nextAdded, parsed: nextParsed });
