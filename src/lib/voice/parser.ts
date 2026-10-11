@@ -39,7 +39,12 @@ const MORE = new Set(["daha", "ekle"]);
 const GLUED = /^(\d+(?:[.,]\d+)?)(cl|ml|lt|litre|l|kg|gr|gram|g|adet)$/;
 
 /** Splits glued number+unit tokens so the unit is never dropped. */
-function expandTokens(tokens: string[]): string[] {
+function expandTokens(rawTokens: string[]): string[] {
+  // "45x6" / "tutsulenmis.45x6": a multiplication written without spaces
+  const tokens = rawTokens.flatMap((t) => {
+    const m = /^([a-z]*[.,]?\d+(?:[.,]\d+)?)x(\d+(?:[.,]\d+)?)$/.exec(t);
+    return m ? [m[1]!, "x", m[2]!] : [t];
+  });
   const out: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
