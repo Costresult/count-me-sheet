@@ -1,6 +1,6 @@
 import { normalizeText, tokenize } from "./text";
 import { parseDecimalAt, parseNumberAt } from "./numbers";
-import { isUnitToken, MILLILITRE_TOKENS, unitFromToken, type UnitCode } from "./units";
+import { familyOf, isUnitToken, MILLILITRE_TOKENS, unitFromToken, type UnitCode } from "./units";
 
 export type Operation = "single" | "plus" | "multiply";
 
@@ -51,6 +51,11 @@ function expandTokens(tokens: string[]): string[] {
       continue;
     }
     const m = GLUED.exec(t);
+    const hundreds = /^(iki|uc|dort|bes|alti|yedi|sekiz|dokuz)yuz$/.exec(t); // "beşyüz" -> "bes yuz"
+    if (hundreds) {
+      out.push(hundreds[1]!, "yuz");
+      continue;
+    }
     const frac = /^[.,](\d+)$/.exec(t);
     if (m) out.push(m[1]!, m[2]!);
     else if (frac) out.push("nokta", frac[1]!);
@@ -164,6 +169,13 @@ export function parseUtterance(raw: string): ParsedUtterance {
     spokenUnit,
     unit,
   }));
+
+  // "1 kilo 500 gram" / "2 litre 50 cl": several measures of the same kind in one sentence are one
+  // amount, so they are added together (1.5 kg, 2.5 L) instead of keeping only the first.
+  if (operation === "single" && terms.length >= 2) {
+    const families = terms.map((t) => (t.unit ? familyOf(t.unit) : "none"));
+    if (families.every((f) => f === families[0] && f !== "count" && f !== "none")) operation = "plus";
+  }
 
   const productText = productTokens.join(" ").trim();
   const first = terms[0] ?? null;
