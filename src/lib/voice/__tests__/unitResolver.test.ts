@@ -52,3 +52,18 @@ describe("unit routing on the September workbook", () => {
     expect(route("becks 12").writes).toEqual([]);
   });
 });
+
+describe("lost or misheard centilitre unit", () => {
+  it.each(["deacon 42 sl", "deacon 42 santil", "deacon 42 si el", "deacon 42 cel"])(
+    "%s -> 0.42 on the LİTRE row",
+    (s) => {
+      expect(route(s).writes).toEqual([["WHISKY LITRE", 0.42]]);
+    },
+  );
+
+  it("does not write a bare 42 as 42 litres; proposes 0.42 instead", () => {
+    const r = route("deacon 42");
+    expect(r.writes).toEqual([]);
+    expect(r.options).toEqual([["WHISKY LITRE", 0.42]]);
+  });
+});
