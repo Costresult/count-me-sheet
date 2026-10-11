@@ -110,3 +110,19 @@ describe("implausibly large litre amounts", () => {
     expect(route("ananas suyu 4 litre").writes).toEqual([["MESRUBAT LITRE", 4]]);
   });
 });
+
+describe("multiplication spoken in different ways", () => {
+  it.each([
+    "badem kavrulmus ,45 x 6",
+    "badem kavrulmus.45x6",
+    "badem kavrulmus nokta 45 çarpı 6",
+    "badem kavrulmus 450 gram çarpı 6",
+  ])("%s -> 2.7 kg", (s) => {
+    expect(route(s).writes.map((w) => w[1])).toEqual([2.7]);
+    expect(route(s).writes[0]![0]).toBe("CEREZ KILOGRAM");
+  });
+
+  it("puts a fraction times a count on the LİTRE row, not the bottle row", () => {
+    expect(route("malibu .45 x 6").writes).toEqual([["LIKOR LITRE", 2.7]]);
+  });
+});

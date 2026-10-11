@@ -205,6 +205,27 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
       return { writes: [], ambiguousRows: rows, reason: "belirsiz" };
     }
 
+    // ".45 x 6": a spoken fraction times a count is an amount on the LİTRE / KİLOGRAM row
+    const fraction = [a, b].find((t) => t.unit === null && !Number.isInteger(t.quantity));
+    const other = fraction === a ? b : a;
+    if (fraction && isCount(other) && !isPackage(other)) {
+      const measureRows = rows.filter((r) => r.unitInfo.unit === "L" || r.unitInfo.unit === "KG");
+      if (measureRows.length === 1) {
+        return {
+          writes: [
+            {
+              rowId: measureRows[0]!.rowId,
+              value: round(a.quantity * b.quantity),
+              note: "çarpım",
+              formula: `${a.quantity}*${b.quantity}`,
+            },
+          ],
+          ambiguousRows: null,
+          reason: "çarpım",
+        };
+      }
+    }
+
     const pkgTerm = b.unit && (b.unit === "KOLI" || b.unit === "PAKET") ? b : a;
     const perTerm = pkgTerm === b ? a : b;
     const pkgRow = pkgTerm.unit ? rows.filter((r) => r.unitInfo.unit === pkgTerm.unit) : [];
@@ -224,7 +245,13 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
       { quantity: total, unit: "ADET", spokenUnit: "adet" },
       u.bottleSizeCl,
     );
-    if (res && "rowId" in res) return { writes: [res], ambiguousRows: null, reason: "çarpım" };
+    if (res && "rowId" in res) {
+      return {
+        writes: [{ ...res, formula: `${a.quantity}*${b.quantity}` }],
+        ambiguousRows: null,
+        reason: "çarpım",
+      };
+    }
     return { writes: [], ambiguousRows: rows, reason: "belirsiz" };
   }
 
