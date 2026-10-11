@@ -296,19 +296,18 @@ export const useCountMe = create<CountMeState>((set, get) => {
       savedAt: session.updatedAt,
     });
     await setActiveId(session.id);
-    ensureFirstPageColumn();
+    ensurePageColumns(get().pages.activePage);
   };
 
   /**
-   * Simpra-style sheets arrive with only a total column. Page 1 needs its own count column
-   * (the total sits in front of the pages), so it is created right away instead of on first write.
+   * Every page up to `upTo` gets its own count column (E, F, G ...), so moving to a new page
+   * never leaves it without a place to write (Simpra-style sheets start with only a total column).
    */
-  const ensureFirstPageColumn = () => {
-    const { parsed, pages, addedColumns } = get();
-    if (!parsed || addedColumns.length > 0 || pages.pageColumns[1]) return;
-    const hasTotal = parsed.columns.some((c) => c.kind === "total");
-    const hasCount = parsed.columns.some((c) => c.kind === "count");
-    if (hasTotal && !hasCount) get().addCountColumn(1);
+  const ensurePageColumns = (upTo: number) => {
+    for (let p = 1; p <= upTo; p++) {
+      if (!get().parsed) return;
+      if (!get().pages.pageColumns[p]) get().addCountColumn(p);
+    }
   };
 
   const clearActive = () =>
@@ -615,7 +614,7 @@ export const useCountMe = create<CountMeState>((set, get) => {
           conflict: null,
           addedColumns: [],
         });
-        ensureFirstPageColumn();
+        ensurePageColumns(get().pages.activePage);
         persist(true);
       } catch (e) {
         set({ busy: false, error: (e as Error).message });
@@ -704,8 +703,10 @@ export const useCountMe = create<CountMeState>((set, get) => {
       set({
         pages: { ...pages, activePage: next, pageCount, pageColumns },
       });
+      ensurePageColumns(next);
+      const pageColumnsNow = get().pages.pageColumns;
       showFeedback(
-        pageColumns[next]
+        pageColumnsNow[next]
           ? `SAYFA ${next} AKTİF`
           : `SAYFA ${next} AKTİF · bu sayfa için sayım kolonu gerekli`,
       );
