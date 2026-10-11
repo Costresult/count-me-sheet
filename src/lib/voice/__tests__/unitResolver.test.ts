@@ -82,3 +82,9 @@ describe("several measures in one sentence", () => {
     expect(route("ananas suyu 2 litre 50 cl").writes).toEqual([["MESRUBAT LITRE", 2.5]]);
   });
 });
+
+describe("unit word that is part of the product name", () => {
+  it("writes 'sprite şişe 3 adet' as 3 on the ADET row", () => {
+    expect(route("sprite şişe 3 adet").writes).toEqual([["MESRUBAT ADET", 3]]);
+  });
+});
