@@ -1,11 +1,16 @@
 import { openDB } from "idb";
 import { cloudDocs, requireUserId, type DocStore } from "./cloud";
-import { getSession, saveSession } from "./storage";
+import { getSession, listSessions, saveSession } from "./storage";
 import type { StoredSession } from "./types";
 
 /**
- * One-time import of what earlier versions kept only in this browser (IndexedDB):
- * inventories and learned aliases/corrections. Never overwrites anything already in the cloud.
+ * One-time hand-over of what earlier versions kept only in this browser (IndexedDB).
+ *
+ * - Runs once per browser and user; the flag is only set when everything was handled.
+ * - Imports only when the account is still empty; otherwise the cloud is the source of truth and
+ *   the old local copies are simply discarded. Without that, anything you deleted would come back.
+ * - Each local record is removed once it is safely in the cloud (or intentionally skipped), so a
+ *   later run can never bring it back.
  */
 export async function migrateLocalToCloud(): Promise<{ sessions: number; learned: number }> {
   const uid = await requireUserId();
@@ -17,15 +22,20 @@ export async function migrateLocalToCloud(): Promise<{ sessions: number; learned
     return done;
   }
 
+  const cloudHasData =
+    (await listSessions()).length > 0 || (await cloudDocs.getAll("aliases")).length > 0;
+
   const sessionsDb = await openDB("countme");
   if (sessionsDb.objectStoreNames.contains("sessions")) {
     const all = (await sessionsDb.getAll("sessions")) as StoredSession[];
     for (const s of all) {
-      if (!s?.id || s.id === "active" || !s.originalFile) continue;
-      if (await getSession(s.id)) continue;
-      await saveSession(s);
-      done.sessions++;
+      if (s?.id && s.id !== "active" && s.originalFile && !cloudHasData && !(await getSession(s.id))) {
+        await saveSession(s);
+        done.sessions++;
+      }
     }
+    await sessionsDb.clear("sessions");
+    if (sessionsDb.objectStoreNames.contains("index")) await sessionsDb.clear("index");
   }
   sessionsDb.close();
 
@@ -39,11 +49,12 @@ export async function migrateLocalToCloud(): Promise<{ sessions: number; learned
     if (!learningDb.objectStoreNames.contains(local)) continue;
     const records = (await learningDb.getAll(local)) as { id: string }[];
     for (const r of records) {
-      if (!r?.id) continue;
-      if ((await cloudDocs.get(remote, r.id)) !== undefined) continue;
-      await cloudDocs.put(remote, r);
-      done.learned++;
+      if (!cloudHasData && r?.id && (await cloudDocs.get(remote, r.id)) === undefined) {
+        await cloudDocs.put(remote, r);
+        done.learned++;
+      }
     }
+    await learningDb.clear(local);
   }
   learningDb.close();
 
