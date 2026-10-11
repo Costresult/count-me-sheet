@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { columnWidth, useCountMe } from "@/lib/countme/store";
 import { editKey, type SheetColumn, type SheetRow } from "@/lib/countme/types";
-import { formatTotal, liveRowTotal, parseNumericInput, totalSourceColumnIds } from "@/lib/countme/calc";
+import {
+  formatFormula,
+  formatTotal,
+  liveRowTotal,
+  parseNumericInput,
+  totalSourceColumnIds,
+} from "@/lib/countme/calc";
 import { cn } from "@/lib/utils";
 
 const FROZEN_MAX = 3; // group, product, unit: the unit tells which row of a product is being counted
@@ -16,18 +22,21 @@ function measureText(text: string, font: string) {
   return ctx.measureText(text).width;
 }
 
-function CellInput({
+export function CellInput({
   rowId,
   col,
   base,
   edited,
   isTarget,
+  formula,
 }: {
   rowId: string;
   col: SheetColumn;
   base: string;
   edited: number | null | undefined;
   isTarget: boolean;
+  /** formula body when the cell holds several readings ("0.8+1.6") */
+  formula?: string | undefined;
 }) {
   const write = useCountMe((s) => s.writeInventoryValue);
   const interrupt = useCountMe((s) => s.userInterrupt);
@@ -64,8 +73,10 @@ function CellInput({
         "h-full w-full bg-transparent px-2 text-right text-[13px] tabular-nums outline-none",
         "focus:bg-[var(--grid-edit)] focus:ring-2 focus:ring-inset focus:ring-ring",
         edited !== undefined && "font-semibold text-primary",
+        formula && "text-red-600 dark:text-red-400",
         isTarget && "bg-[var(--grid-target)]",
       )}
+      title={formula ? `${formatFormula(formula)} = ${external}` : undefined}
       value={draft}
       onPointerDown={interrupt}
       onChange={(e) => {
@@ -89,6 +100,7 @@ export function SheetGrid() {
   const parsed = useCountMe((s) => s.parsed);
   const view = useCountMe((s) => s.view);
   const edits = useCountMe((s) => s.edits);
+  const formulas = useCountMe((s) => s.formulas);
   const focus = useCountMe((s) => s.focus);
   const clearFocus = useCountMe((s) => s.clearFocus);
   const setColumnWidth = useCountMe((s) => s.setColumnWidth);
@@ -336,6 +348,7 @@ export function SheetGrid() {
                           base={base}
                           edited={edited}
                           isTarget={Boolean(isTarget)}
+                          formula={formulas[editKey(row.id, col.id)]}
                         />
                       ) : (
                         <span
