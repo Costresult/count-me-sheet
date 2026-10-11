@@ -34,6 +34,8 @@ function scoreRow(
   const rowTokens = row.tokens;
   const contained = queryTokens.filter((t, qi) => {
     if (rowTokens.some((rt) => rt === t || (t.length >= 4 && rt.startsWith(t)))) return true;
+    // the recognizer often appends a syllable ("barbareros" for "barbare")
+    if (rowTokens.some((rt) => rt.length >= 5 && t.length > rt.length && t.startsWith(rt))) return true;
     // English brand names spoken with Turkish pronunciation ("cek deniels" ~ "jack daniels")
     const qp = queryPhonTokens[qi];
     return !!qp && qp.length >= 3 && row.phonTokens.includes(qp);

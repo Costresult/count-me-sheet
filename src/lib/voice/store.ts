@@ -762,10 +762,14 @@ export const useVoice = create<VoiceStore>((set, get) => {
       const catalogue = buildProductIndex(parsed);
       const row = catalogue.find((r) => r.rowId === rowId);
       if (!row) return;
-      const d = resolveDestination([row], prompt.utterance);
-      const proposed = d.writes[0]?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
-      const value = finalizeValue(rowId, prompt.utterance, proposed, catalogue);
-      await commitChoice(prompt, rowId, value);
+      // The user picked a product; the spoken unit still decides which of its rows is written
+      // ("8 şişe" goes to the ŞİŞE row even when the LİTRE row was the one clicked).
+      const d = resolveDestination(groupRows(catalogue, row.groupKey), prompt.utterance);
+      const routed = d.writes.length === 1 ? d.writes[0]! : null;
+      const targetId = routed?.rowId ?? rowId;
+      const proposed = routed?.value ?? prompt.utterance.terms[0]?.quantity ?? 0;
+      const value = finalizeValue(targetId, prompt.utterance, proposed, catalogue);
+      await commitChoice(prompt, targetId, value);
     },
 
     dismissPrompt: (unmatched = true) => {
