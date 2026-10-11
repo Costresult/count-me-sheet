@@ -17,6 +17,9 @@ export const normalizeText = (s: string): string =>
   foldTr(s)
     .replace(/['’`´"]/g, "")
     .replace(/[^a-z0-9.,]+/g, " ")
+    // sentence punctuation from the recognizer ("34 cl.", "13,") is not part of a number or word;
+    // only a point/comma directly before a digit is kept (decimals like 0,2 and glued ".2")
+    .replace(/[.,]+(?!\d)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
