@@ -13,6 +13,8 @@ const VARIANTS: Record<string, UnitCode> = {
   gram: "GRAM", gr: "GRAM", g: "GRAM", grami: "GRAM",
   kg: "KG", kilo: "KG", kilogram: "KG", kilograms: "KG", kgs: "KG",
   cl: "CL", santilitre: "CL", centilitre: "CL", santilitresi: "CL", cc: "CL",
+  // frequent recognizer spellings of "cl" / "santilitre"
+  sl: "CL", cel: "CL", sel: "CL", santil: "CL", santim: "CL", senti: "CL", santi: "CL", santilit: "CL",
   l: "L", lt: "L", litre: "L", liter: "L", lit: "L", ltr: "L",
   ml: "CL", // handled with a factor below
 };

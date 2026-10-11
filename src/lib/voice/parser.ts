@@ -41,7 +41,15 @@ const GLUED = /^(\d+(?:[.,]\d+)?)(cl|ml|lt|litre|l|kg|gr|gram|g|adet)$/;
 /** Splits glued number+unit tokens so the unit is never dropped. */
 function expandTokens(tokens: string[]): string[] {
   const out: string[] = [];
-  for (const t of tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    // "si el" / "se el" / "c l" are how the recognizer sometimes writes a spoken "cl"
+    const pair = `${t} ${tokens[i + 1] ?? ""}`;
+    if (i > 0 && /^\d/.test(tokens[i - 1]!) && /^(si el|se el|sı el|c l|s l)$/.test(pair)) {
+      out.push("cl");
+      i++;
+      continue;
+    }
     const m = GLUED.exec(t);
     const frac = /^[.,](\d+)$/.exec(t);
     if (m) out.push(m[1]!, m[2]!);

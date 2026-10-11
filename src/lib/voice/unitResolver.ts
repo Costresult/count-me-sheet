@@ -313,6 +313,20 @@ export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Dest
 
   const term = u.terms[0]!;
 
+  // A bare whole number of 10 or more on a LİTRE row is almost certainly centilitres whose unit the
+  // recognizer lost ("deacon 42"): never written silently as 42 litres, proposed as 0.42 instead.
+  if (!term.unit && Number.isInteger(term.quantity) && term.quantity >= 10) {
+    const litreRow = rows.find((r) => r.unitInfo.unit === "L");
+    if (litreRow) {
+      return {
+        writes: [],
+        confidence: "MEDIUM",
+        options: [{ row: litreRow, value: round(term.quantity / 100), note: `${term.quantity} cl varsayıldı` }],
+        reason: "büyük birimsiz sayı",
+      };
+    }
+  }
+
   // "1 şişe" on a product that has no bottle row: the bottle goes on the LİTRE row as the
   // bottle size (0.70 / 0.75 / 0.50). Proposed, not auto-written, until the user confirms it.
   if (term.unit === "SISE" && !rows.some((r) => r.unitInfo.unit === "SISE")) {
