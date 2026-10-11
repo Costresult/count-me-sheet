@@ -88,6 +88,8 @@ export function parseUtterance(raw: string): ParsedUtterance {
   interface Located extends SpokenTerm {
     start: number;
     end: number;
+    /** "… şişe" with no number: an assumed quantity of 1 */
+    implicit?: boolean;
   }
   const located: Located[] = [];
   const skip = new Set<number>();
@@ -143,7 +145,7 @@ export function parseUtterance(raw: string): ParsedUtterance {
 
     // bare unit word without a number => quantity 1 ("… şişe")
     if (isUnitToken(t) && located.length === 0 && i > 0) {
-      located.push({ quantity: 1, spokenUnit: t, unit: unitFromToken(t), start: i, end: i + 1 });
+      located.push({ quantity: 1, spokenUnit: t, unit: unitFromToken(t), start: i, end: i + 1, implicit: true });
       i++;
       continue;
     }
@@ -152,6 +154,17 @@ export function parseUtterance(raw: string): ParsedUtterance {
 
   // Numbers that belong to the product name ("Monkey 47", "Chivas Regal 18") carry no
   // unit; when a measured term exists in the same sentence they stay part of the name.
+  // A unit word with no number ("kişniş TANE 900 gram", "sprite ŞİŞE 3 adet") is part of the product
+  // name when the sentence also has a real quantity; the assumed "1" is dropped.
+  const keepInName = new Set<number>();
+  if (located.some((t) => !t.implicit)) {
+    for (let li = located.length - 1; li >= 0; li--) {
+      if (located[li]!.implicit) {
+        keepInName.add(located[li]!.start);
+        located.splice(li, 1);
+      }
+    }
+  }
   const measured = located.filter((t) => t.unit !== null);
   const kept = operation === "single" && measured.length > 0 ? measured : located;
 
@@ -159,7 +172,7 @@ export function parseUtterance(raw: string): ParsedUtterance {
   const keptRanges = kept.map((t) => [t.start, t.end] as const);
   const productTokens: string[] = [];
   for (let k = 0; k < firstKept; k++) {
-    if (skip.has(k) || NOISE.has(tokens[k]!)) continue;
+    if (skip.has(k) || (NOISE.has(tokens[k]!) && !keepInName.has(k))) continue;
     if (keptRanges.some(([a, b]) => k >= a && k < b)) continue;
     productTokens.push(tokens[k]!);
   }
