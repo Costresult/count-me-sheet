@@ -132,7 +132,12 @@ interface SafeContext {
   timestamp: number;
 }
 let lastSafe: SafeContext | null = null;
-const CONTEXT_TTL = 5 * 60 * 1000;
+/**
+ * A number said without a product ("nokta 3", "artı 2") is added to the product just written, but
+ * only for this long; after that nothing is written until a product is named again.
+ */
+export const FOLLOW_UP_WINDOW_MS = 5000;
+const CONTEXT_TTL = FOLLOW_UP_WINDOW_MS;
 
 /** Voice writes still eligible to be learned from when the user corrects them. */
 interface VoiceWriteRecord {
@@ -411,9 +416,19 @@ export const useVoice = create<VoiceStore>((set, get) => {
    * path; the value always goes through the final unit normalization gate.
    */
   const handleBareQuantity = (u: ParsedUtterance, index: ProductRow[]): boolean => {
+    // Only the product written a moment ago counts; a selected/focused cell is never a target.
     const ctx = lastSafe && Date.now() - lastSafe.timestamp <= CONTEXT_TTL ? lastSafe : null;
-    const rowId = ctx?.rowId ?? cme().focus?.rowId ?? null;
-    if (!rowId) return false;
+    if (!ctx) {
+      pushEntry({
+        rawTranscript: u.rawTranscript,
+        normalizedTranscript: u.normalizedTranscript,
+        physicalPage: cme().pages.activePage,
+        outcome: "ignored",
+        detail: `ürün söylenmedi (son yazımdan sonra ${FOLLOW_UP_WINDOW_MS / 1000} sn geçti)`,
+      });
+      return true;
+    }
+    const rowId = ctx.rowId;
     const row = index.find((r) => r.rowId === rowId);
     if (!row) return false;
     const d = resolveDestination([row], u);

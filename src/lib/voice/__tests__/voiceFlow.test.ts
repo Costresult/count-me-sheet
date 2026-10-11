@@ -193,3 +193,45 @@ describe("multiplication", () => {
     expect(cell(t, "ANANAS SUYU LITRE", "LITRE")).toEqual({ value: 77, formula: "5+18*4" });
   });
 });
+
+describe("a number without a product", () => {
+  const edits = () => Object.values(useCountMe.getState().edits);
+
+  it("adds to the product just written when said within 5 seconds", async () => {
+    const t = setup();
+    const real = Date.now.bind(Date);
+    let offset = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => real() + offset);
+    try {
+      useVoice.getState().ingestTranscript("malibu nokta iki");
+      await wait();
+      offset = 3000;
+      useVoice.getState().ingestTranscript("nokta bir");
+      await wait();
+      expect(edits()).toEqual([0.3]);
+      expect(t.written()).toEqual([["LQR MALIBU|LITRE", 0.3]]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("writes nothing after 5 seconds, even though the cell is still selected", async () => {
+    const t = setup();
+    const real = Date.now.bind(Date);
+    let offset = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => real() + offset);
+    try {
+      useVoice.getState().ingestTranscript("malibu nokta iki");
+      await wait();
+      useCountMe.getState().focusProductRow(t.rowOf("LQR MALIBU", "LITRE"));
+      offset = 6000;
+      useVoice.getState().ingestTranscript("nokta bir");
+      await wait();
+      useVoice.getState().ingestTranscript("artı nokta bir");
+      await wait();
+      expect(edits()).toEqual([0.2]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
