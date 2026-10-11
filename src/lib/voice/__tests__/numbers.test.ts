@@ -45,3 +45,18 @@ describe("unit word inside a product name", () => {
     expect(p.terms[0]).toMatchObject({ quantity: 1, unit: "SISE" });
   });
 });
+
+describe("how the recognizer writes 'nokta 72' and '72 cl'", () => {
+  it("splits a decimal glued to the product word", () => {
+    const p = parseUtterance("sirke pirinç.72");
+    expect(p.productText).toBe("sirke pirinc");
+    expect(p.terms[0]?.quantity).toBeCloseTo(0.72, 6);
+    expect(p.terms[0]?.unit).toBeNull();
+  });
+
+  it("reads a number + 'si' as centilitres and ignores filler words", () => {
+    const p = parseUtterance("sirke pirinç 72'si yani");
+    expect(p.productText).toBe("sirke pirinc");
+    expect(p.terms[0]).toMatchObject({ quantity: 72, unit: "CL" });
+  });
+});
