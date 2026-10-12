@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Clock,
   Power,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useCountMe } from "@/lib/countme/store";
@@ -206,6 +207,7 @@ export function SidebarPanel() {
   const setSidebarOpen = useCountMe((s) => s.setSidebarOpen);
   const exitApplication = useCountMe((s) => s.exitApplication);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   const ongoing = sessions.filter((s) => s.status !== "COMPLETED");
   const done = sessions.filter((s) => s.status === "COMPLETED");
@@ -244,6 +246,45 @@ export function SidebarPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto pb-4">
         <Section title="Devam Edenler" icon={Clock} items={ongoing} />
         <Section title="Tamamlananlar" icon={CheckCircle2} items={done} />
+        <div className="px-2 pt-1">
+          <button
+            type="button"
+            data-testid="sidebar-dropzone"
+            onClick={() => fileRef.current?.click()}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              if (!dragging) setDragging(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) {
+                setSidebarOpen(false);
+                void uploadFile(f);
+              }
+            }}
+            className={cn(
+              "flex w-full flex-col items-center gap-1 rounded-lg border-2 border-dashed border-border px-3 py-4 text-center text-[12px] text-muted-foreground transition-colors hover:border-primary/60 hover:bg-primary/5",
+              dragging && "border-primary bg-primary/10 text-primary",
+            )}
+          >
+            <Upload className="size-5" />
+            <span className="font-medium">
+              {dragging ? "Dosyayı bırakın" : "Excel'i buraya sürükleyin"}
+            </span>
+            <span className="text-[11px]">veya seçmek için tıklayın (.xlsx)</span>
+          </button>
+        </div>
       </div>
 
       <div className="shrink-0"><VoicePanel /></div>
