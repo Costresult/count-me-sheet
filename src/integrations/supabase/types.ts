@@ -71,27 +71,6 @@ export type Database = {
         }
         Relationships: []
       }
-      count_voice_log: {
-        Row: {
-          data: Json
-          id: string
-          updated_at: number
-          user_id: string
-        }
-        Insert: {
-          data: Json
-          id: string
-          updated_at: number
-          user_id?: string
-        }
-        Update: {
-          data?: Json
-          id?: string
-          updated_at?: number
-          user_id?: string
-        }
-        Relationships: []
-      }
       count_sessions: {
         Row: {
           created_at: number
@@ -135,6 +114,27 @@ export type Database = {
         Relationships: []
       }
       count_unit_corrections: {
+        Row: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id: string
+        }
+        Insert: {
+          data: Json
+          id: string
+          updated_at: number
+          user_id?: string
+        }
+        Update: {
+          data?: Json
+          id?: string
+          updated_at?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      count_voice_log: {
         Row: {
           data: Json
           id: string
