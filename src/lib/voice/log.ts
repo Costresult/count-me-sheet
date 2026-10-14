@@ -34,6 +34,8 @@ export interface VoiceLogRecord {
   /** other candidates shown to the user */
   candidates?: string[] | undefined;
   note?: string | undefined;
+  /** the user marked this record as wrong ("düzelt"): what they expected instead, if they said */
+  flag?: { at: number; note: string } | undefined;
 }
 
 const queue: VoiceLogRecord[] = [];
@@ -69,6 +71,18 @@ export async function flushVoiceLog() {
   await flush();
 }
 
+/**
+ * Marks a record as needing a fix, with an optional note on what should have happened.
+ * Returns false when the record cannot be found.
+ */
+export async function flagVoiceLog(id: string, note: string): Promise<boolean> {
+  await flushVoiceLog();
+  const rec = (await cloudDocs.get("voicelog", id)) as VoiceLogRecord | undefined;
+  if (!rec) return false;
+  await cloudDocs.put("voicelog", { ...rec, flag: { at: Date.now(), note: note.trim() } });
+  return true;
+}
+
 export async function listVoiceLog(): Promise<VoiceLogRecord[]> {
   await flushVoiceLog();
   const all = (await cloudDocs.getAll("voicelog")) as VoiceLogRecord[];
@@ -93,7 +107,7 @@ const csvCell = (v: unknown) => {
 
 /** CSV with a UTF-8 BOM so Excel opens Turkish characters correctly. */
 export function voiceLogToCsv(records: VoiceLogRecord[]): string {
-  const head = ["Zaman", "Sonuç", "Duyulan", "Ürün metni", "Sayfa", "Önerilen / eşleşen", "Seçilen", "Değer", "Diğer adaylar", "Not"];
+  const head = ["Zaman", "Sonuç", "Duyulan", "Ürün metni", "Sayfa", "Önerilen / eşleşen", "Seçilen", "Değer", "Diğer adaylar", "Not", "Düzelt notu"];
   const rows = records.map((r) => [
     new Date(r.ts).toLocaleString("tr-TR"),
     kindLabel[r.kind],
@@ -105,6 +119,7 @@ export function voiceLogToCsv(records: VoiceLogRecord[]): string {
     r.value,
     r.candidates?.join(" | "),
     r.note,
+    r.flag ? `DÜZELT: ${r.flag.note}` : "",
   ]);
   return "﻿" + [head, ...rows].map((row) => row.map(csvCell).join(";")).join("\n");
 }
