@@ -299,5 +299,6 @@ describe("a learned name that was used", () => {
     const used = useVoice.getState().aliases.find((a) => a.id === "old")!;
     expect(used.useCount).toBe(1);
     expect(used.lastUsed).toBeGreaterThan(1);
+    expect(used.confidence).toBeCloseTo(0.5, 6);
   });
 });
