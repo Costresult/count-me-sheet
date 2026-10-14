@@ -1,4 +1,11 @@
-import type { AddedColumn, CellValue, ParsedSheet, SheetCell, SheetColumn, SheetRow } from "./types";
+import type {
+  AddedColumn,
+  CellValue,
+  ParsedSheet,
+  SheetCell,
+  SheetColumn,
+  SheetRow,
+} from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyWorkbook = any;
@@ -6,7 +13,9 @@ type AnyWorkbook = any;
 let excelPromise: Promise<AnyWorkbook> | null = null;
 export async function getExcelJS(): Promise<AnyWorkbook> {
   if (!excelPromise) {
-    excelPromise = import("exceljs").then((m) => (m as never as { default: AnyWorkbook }).default ?? m);
+    excelPromise = import("exceljs").then(
+      (m) => (m as never as { default: AnyWorkbook }).default ?? m,
+    );
   }
   return excelPromise;
 }
@@ -156,7 +165,9 @@ export function parseSheet(
       col.defaultWidth = 110;
     } else if (IDENTITY_RE.test(col.header) || (filled > 0 && text >= filled * 0.7)) {
       col.kind = "identity";
-      col.defaultWidth = /(ürün|urun|malzeme|isim|ad|product|item|name|a[çc][ıi]klama)/i.test(col.header)
+      col.defaultWidth = /(ürün|urun|malzeme|isim|ad|product|item|name|a[çc][ıi]klama)/i.test(
+        col.header,
+      )
         ? 260
         : 110;
     } else {
@@ -198,7 +209,10 @@ export function parseSheet(
   };
 }
 
-export async function parseWorkbookSheet(buffer: ArrayBuffer, sheetName: string): Promise<ParsedSheet> {
+export async function parseWorkbookSheet(
+  buffer: ArrayBuffer,
+  sheetName: string,
+): Promise<ParsedSheet> {
   const wb = await loadWorkbook(buffer);
   const ws = wb.getWorksheet(sheetName);
   if (!ws) throw new Error(`Çalışma sayfası bulunamadı: ${sheetName}`);
@@ -239,18 +253,39 @@ export async function exportWithEdits(
   /** original column number where new columns get inserted */
   const shift = new Map<string, number>();
   // Simpra layout: the total column sits in front of the page columns and sums them.
-  const totalFirst = totals.length > 0 && (!lastCount || totals[0]!.colNumber < lastCount.colNumber);
+  const totalFirst =
+    totals.length > 0 && (!lastCount || totals[0]!.colNumber < lastCount.colNumber);
+
+  /** true once the real columns right of the insertion point were shifted by spliceColumns */
+  let spliced = false;
 
   if (n > 0 && totalFirst) {
     const insertIndex = (lastCount?.colNumber ?? totals[0]!.colNumber) + 1;
-    ws.spliceColumns(insertIndex, 0, ...added.map(() => [] as unknown[]));
+    // Lists exported by other systems often carry dozens of styled but empty columns to the right.
+    // When nothing there holds a value, the page columns are written straight into them: no column
+    // splice, which keeps the file structure exactly as it was.
+    let rightIsEmpty = true;
+    for (let r = 1; r <= ws.rowCount && rightIsEmpty; r++) {
+      const row = ws.getRow(r);
+      for (let c = insertIndex; c <= ws.columnCount; c++) {
+        const v = row.getCell(c).value;
+        if (v !== null && v !== undefined && v !== "") {
+          rightIsEmpty = false;
+          break;
+        }
+      }
+    }
+    if (!rightIsEmpty) {
+      ws.spliceColumns(insertIndex, 0, ...added.map(() => [] as unknown[]));
+      spliced = true;
+    }
     added.forEach((a, i) => shift.set(a.id, insertIndex + i));
     const headerRow = ws.getRow(parsed.headerRowNumber);
     added.forEach((a) => {
       headerRow.getCell(shift.get(a.id)!).value = a.header;
     });
-    headerRow.commit?.();
   } else if (n > 0) {
+    spliced = true;
     const firstTotal = totals[0];
     const insertAt = firstTotal ? firstTotal.colNumber : maxCol + 1;
 
@@ -301,7 +336,12 @@ export async function exportWithEdits(
     const col = colById.get(colId);
     if (!col) return null;
     if (col.virtual || addedIds.has(colId)) return shift.get(colId) ?? null;
-    if (n > 0 && shift.size > 0 && col.colNumber >= Math.min(...Array.from(shift.values()))) {
+    if (
+      spliced &&
+      n > 0 &&
+      shift.size > 0 &&
+      col.colNumber >= Math.min(...Array.from(shift.values()))
+    ) {
       return col.colNumber + n;
     }
     return col.colNumber;
@@ -324,7 +364,8 @@ export async function exportWithEdits(
     const body = formulas[key];
     cell.value = value === null ? null : body ? { formula: body, result: value } : value;
     // cells holding several readings are red in Excel too, so they are easy to check
-    if (body) cell.font = { ...(cell.font ?? {}), color: { argb: "FFDC2626" } };
+    if (body)
+      cell.font = { name: "Calibri", size: 11, ...(cell.font ?? {}), color: { argb: "FFDC2626" } };
   }
 
   // ---- total column sums the page columns (E..last) when it sits in front of them ----
@@ -355,7 +396,7 @@ export async function exportWithEdits(
   if (unmatched.length > 0) {
     const identity = parsed.columns.filter((c) => c.kind === "identity");
     const nameCol = finalCol(identity[0]?.id ?? parsed.columns[0]!.id) ?? 1;
-    const unitCol = identity[1] ? finalCol(identity[1].id) ?? nameCol + 1 : nameCol + 1;
+    const unitCol = identity[1] ? (finalCol(identity[1].id) ?? nameCol + 1) : nameCol + 1;
     const lastRow = parsed.rows.reduce((m, r) => Math.max(m, r.rowNumber), parsed.headerRowNumber);
     let r = lastRow + 2; // keep one blank row after the original inventory
     const head = ws.getRow(r);
@@ -383,7 +424,10 @@ export async function exportWithEdits(
 }
 
 /** Returns a parsed sheet extended with the user's added (virtual) count columns. */
-export function withAddedColumns(parsed: ParsedSheet | null, added: AddedColumn[]): ParsedSheet | null {
+export function withAddedColumns(
+  parsed: ParsedSheet | null,
+  added: AddedColumn[],
+): ParsedSheet | null {
   if (!parsed || added.length === 0) return parsed;
   const existing = new Set(parsed.columns.map((c) => c.id));
   const extras: SheetColumn[] = added
@@ -406,12 +450,22 @@ export function withAddedColumns(parsed: ParsedSheet | null, added: AddedColumn[
   });
   // total in front (Simpra layout): page columns follow the last count column, or the total
   const insertAfter =
-    firstTotalIdx === -1 ? -1 : lastCountIdx > firstTotalIdx ? lastCountIdx : lastCountIdx === -1 ? firstTotalIdx : -1;
+    firstTotalIdx === -1
+      ? -1
+      : lastCountIdx > firstTotalIdx
+        ? lastCountIdx
+        : lastCountIdx === -1
+          ? firstTotalIdx
+          : -1;
   const columns =
     firstTotalIdx === -1
       ? [...parsed.columns, ...extras]
       : insertAfter >= 0
-        ? [...parsed.columns.slice(0, insertAfter + 1), ...extras, ...parsed.columns.slice(insertAfter + 1)]
+        ? [
+            ...parsed.columns.slice(0, insertAfter + 1),
+            ...extras,
+            ...parsed.columns.slice(insertAfter + 1),
+          ]
         : [
             ...parsed.columns.slice(0, firstTotalIdx),
             ...extras,
