@@ -11,6 +11,7 @@ import { familyOf } from "./units";
 import {
   learnAlias,
   touchAlias,
+  usedAlias,
   listAliases,
   deleteAlias,
   recordCorrection,
@@ -555,7 +556,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       // a learned name that did the matching moves to the top of the learned list
       const used = match.aliasUsed;
       if (used) {
-        const bumped = { ...used, lastUsed: Date.now(), useCount: (used.useCount ?? 0) + 1 };
+        const bumped = usedAlias(used);
         set({ aliases: get().aliases.map((a) => (a.id === used.id ? bumped : a)) });
         void touchAlias(used).catch(() => undefined);
       }

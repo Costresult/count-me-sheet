@@ -55,9 +55,23 @@ const UNITMAP = "unitmap" as const;
 /** Same tiny get/put/getAll/delete surface the IndexedDB version had, now backed by the cloud. */
 const db = async () => cloudDocs;
 
+/** Each successful automatic use is a small confirmation of a learned name. */
+export const USE_CONFIDENCE_STEP = 0.05;
+
+/** The record after one more automatic use: newer, counted, and a little more trusted. */
+export const usedAlias = (alias: AliasRecord, now = Date.now()): AliasRecord => ({
+  ...alias,
+  lastUsed: now,
+  useCount: (alias.useCount ?? 0) + 1,
+  confidence: Math.min(
+    MAX_CONFIDENCE,
+    Math.round((alias.confidence + USE_CONFIDENCE_STEP) * 100) / 100,
+  ),
+});
+
 /** Records that a learned name was just used, so it moves to the top of the list. */
 export async function touchAlias(alias: AliasRecord): Promise<AliasRecord> {
-  const next: AliasRecord = { ...alias, lastUsed: Date.now(), useCount: (alias.useCount ?? 0) + 1 };
+  const next = usedAlias(alias);
   await (await db()).put(ALIASES, next);
   return next;
 }
