@@ -6,6 +6,7 @@ vi.mock("@/lib/voice/aliases", async (orig) => {
   return {
     ...real,
     learnAlias: vi.fn(async () => null),
+    touchAlias: vi.fn(async (a: unknown) => a),
     recordCorrection: vi.fn(async () => undefined),
     learnUnitCorrection: vi.fn(async () => undefined),
     listAliases: vi.fn(async () => []),
@@ -279,5 +280,24 @@ describe("flagging an entry for a fix", () => {
     useVoice.getState().ingestTranscript("badem kavrulmus nokta iki");
     await wait();
     await expect(flagVoiceLog(useVoice.getState().entries[0]!.id, "")).rejects.toThrow("offline");
+  });
+});
+
+describe("a learned name that was used", () => {
+  it("moves to the top of the learned list and counts the use", async () => {
+    const t = setup();
+    const aliasOf = (id: string, spoken: string, product: string, lastUsed: number) => ({
+      id, spokenAlias: spoken, normalizedAlias: spoken, targetProductIdentity: product, targetProductName: product,
+      targetUnit: null, correctionCount: 1, lastUsed, confidence: 0.45, source: "USER_SELECTION" as const,
+    });
+    useVoice.setState({
+      aliases: [aliasOf("old", "malibu", "LQR MALIBU", 1), aliasOf("new", "cek", "WHY GENTLEMAN JACK", 9_999_999_999_999)],
+    } as never);
+    useVoice.getState().ingestTranscript("malibu nokta iki");
+    await wait();
+    expect(t.written()).toEqual([["LQR MALIBU|LITRE", 0.2]]);
+    const used = useVoice.getState().aliases.find((a) => a.id === "old")!;
+    expect(used.useCount).toBe(1);
+    expect(used.lastUsed).toBeGreaterThan(1);
   });
 });

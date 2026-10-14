@@ -248,6 +248,16 @@ export function VoiceMemoryPanel() {
   const setOpen = useVoice((s) => s.setPanelOpen);
   const aliases = useVoice((s) => s.aliases);
   const forget = useVoice((s) => s.forgetAlias);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLocaleLowerCase("tr");
+  const shown = aliases
+    .filter(
+      (a) =>
+        !q ||
+        a.spokenAlias.toLocaleLowerCase("tr").includes(q) ||
+        a.targetProductName.toLocaleLowerCase("tr").includes(q),
+    )
+    .sort((a, b) => b.lastUsed - a.lastUsed);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -260,38 +270,46 @@ export function VoiceMemoryPanel() {
           </SheetDescription>
         </SheetHeader>
 
+        <input
+          data-testid="alias-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Ara… (${aliases.length} öğrenilen ad)`}
+          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[13px]"
+        />
+
         <div className="space-y-2">
           {aliases.length === 0 && (
             <p className="text-[13px] text-muted-foreground">Henüz kayıt yok.</p>
           )}
-          {aliases
-            .slice()
-            .sort((a, b) => b.lastUsed - a.lastUsed)
-            .map((a) => (
-              <div
-                key={a.id}
-                data-testid="alias-item"
-                className="flex items-center gap-2 rounded-md border border-border p-2 text-[13px]"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">
-                    “{a.spokenAlias}” → {a.targetProductName}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {a.correctionCount}× · güven {Math.round(a.confidence * 100)}%
-                    {a.targetUnit ? ` · ${a.targetUnit}` : ""}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Sil"
-                  onClick={() => void forget(a.id)}
-                  className="inline-flex size-8 items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="size-4" />
-                </button>
+          {aliases.length > 0 && shown.length === 0 && (
+            <p className="text-[13px] text-muted-foreground">“{query}” ile eşleşen kayıt yok.</p>
+          )}
+          {shown.map((a) => (
+            <div
+              key={a.id}
+              data-testid="alias-item"
+              className="flex items-center gap-2 rounded-md border border-border p-2 text-[13px]"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">
+                  “{a.spokenAlias}” → {a.targetProductName}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {a.correctionCount}× öğrenildi · {a.useCount ?? 0}× kullanıldı · güven{" "}
+                  {Math.round(a.confidence * 100)}%{a.targetUnit ? ` · ${a.targetUnit}` : ""}
+                </p>
               </div>
-            ))}
+              <button
+                type="button"
+                aria-label="Sil"
+                onClick={() => void forget(a.id)}
+                className="inline-flex size-8 items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </div>
+          ))}
         </div>
       </SheetContent>
     </Sheet>
