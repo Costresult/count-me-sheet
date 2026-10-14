@@ -125,11 +125,16 @@ export function EntryRow({
           {kindLabel[rec.kind]}
           {result ? ` · ${result}` : ""}
           {rec.flag?.note ? ` · not: ${rec.flag.note}` : ""}
+          {rec.flag?.done ? " · düzeltildi" : ""}
         </p>
         {rec.flag ? (
           <span
             className="inline-flex shrink-0 items-center gap-0.5 text-primary"
-            title="Düzeltilmek üzere işaretlendi"
+            title={
+              rec.flag.done
+                ? `Düzeltildi${rec.flag.fix ? `: ${rec.flag.fix}` : ""}`
+                : "Düzeltilmek üzere işaretlendi"
+            }
             data-testid="entry-flagged"
           >
             <Check className="size-3.5" />

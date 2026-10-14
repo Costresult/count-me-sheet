@@ -35,7 +35,8 @@ function scoreRow(
   const contained = queryTokens.filter((t, qi) => {
     if (rowTokens.some((rt) => rt === t || (t.length >= 4 && rt.startsWith(t)))) return true;
     // the recognizer often appends a syllable ("barbareros" for "barbare")
-    if (rowTokens.some((rt) => rt.length >= 5 && t.length > rt.length && t.startsWith(rt))) return true;
+    if (rowTokens.some((rt) => rt.length >= 5 && t.length > rt.length && t.startsWith(rt)))
+      return true;
     // English brand names spoken with Turkish pronunciation ("cek deniels" ~ "jack daniels")
     const qp = queryPhonTokens[qi];
     return !!qp && qp.length >= 3 && row.phonTokens.includes(qp);
@@ -84,8 +85,25 @@ export function matchProduct(
 
   const alias =
     aliases.find((a) => a.normalizedAlias === queryNorm) ??
-    aliases.find((a) => a.normalizedAlias.length > 3 && similarity(a.normalizedAlias, queryNorm) > 0.9) ??
+    aliases.find(
+      (a) => a.normalizedAlias.length > 3 && similarity(a.normalizedAlias, queryNorm) > 0.9,
+    ) ??
     null;
+
+  // A learned name inside a longer sentence ("köri toz 735 gram" after learning "köri"): the extra
+  // word is a description, so the learned product still wins over products matching only that word.
+  const containedAlias = alias
+    ? null
+    : (aliases
+        .filter(
+          (a) =>
+            a.normalizedAlias.length >= 3 &&
+            a.normalizedAlias.split(" ").every((t) => queryTokens.includes(t)),
+        )
+        .sort(
+          (x, y) =>
+            y.normalizedAlias.length - x.normalizedAlias.length || y.confidence - x.confidence,
+        )[0] ?? null);
 
   const scored: MatchCandidate[] = [];
   for (const row of index) {
@@ -96,6 +114,13 @@ export function matchProduct(
     if (alias && normalizeText(alias.targetProductName) === normalizeText(row.name)) {
       final = Math.max(final, 0.8) + Math.min(0.18, 0.08 + alias.confidence * 0.1);
       why = "learned";
+    }
+    if (
+      containedAlias &&
+      normalizeText(containedAlias.targetProductName) === normalizeText(row.name)
+    ) {
+      final = Math.max(final, 0.88); // stays below a product whose own words all match
+      why = "learned-part";
     }
     scored.push({ row, score: Math.min(1, final), reason: why });
   }
@@ -112,7 +137,7 @@ export function matchProduct(
     if (exactish || (best.score >= 0.86 && (!otherGroup || gap >= 0.08))) confidence = "HIGH";
     else if (best.score >= 0.62) confidence = "MEDIUM";
   }
-  return { candidates, best, confidence, aliasUsed: alias };
+  return { candidates, best, confidence, aliasUsed: alias ?? containedAlias };
 }
 
 /** Distinct product groups among candidates (for the ambiguity picker). */
@@ -139,7 +164,12 @@ export function matchProductWithNameNumber(
 ): { match: MatchResult; utterance: ParsedUtterance } {
   const plain = matchProduct(index, u.productText, aliases);
   const first = u.terms[0];
-  if (plain.confidence === "HIGH" || !first || first.unit !== null || !Number.isInteger(first.quantity)) {
+  if (
+    plain.confidence === "HIGH" ||
+    !first ||
+    first.unit !== null ||
+    !Number.isInteger(first.quantity)
+  ) {
     return { match: plain, utterance: u };
   }
   const withNumber = matchProduct(index, `${u.productText} ${first.quantity}`, aliases);
