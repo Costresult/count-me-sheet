@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import { appendReading } from "@/lib/countme/calc";
 import { exportWithEdits, parseSheet, withAddedColumns } from "@/lib/countme/workbook";
 import { editKey } from "@/lib/countme/types";
@@ -173,5 +174,26 @@ describe("pages next to a list with styled empty columns to the right", () => {
     expect(ws.getCell("F2").value).toBeNull(); // the note moved, it was not overwritten
     expect(ws.getCell("I2").value).toBe("not 0");
     expect([ws.getCell("F1").value, ws.getCell("H1").value, ws.getCell("I1").value]).toEqual(["Sayım 1", "Sayım 3", "Açıklama"]);
+  });
+});
+
+describe("package integrity", () => {
+  it("ships the theme part the package refers to, even when the source list had none", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("InventoryCounts");
+    ws.addRow(["Alt Grup", "Stok Malı", "Birim", "Sayım Miktarı"]);
+    ws.addRow(["A", "B", "KILOGRAM", "-"]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (wb as any)._themes = {}; // what a non-Excel exporter's file looks like once loaded
+    const buffer = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+    const added = [{ id: "v1", header: "Sayım 1" }];
+    const parsed = withAddedColumns(parseSheet(await load(buffer)), added)!;
+    const out = await exportWithEdits(buffer, "InventoryCounts", parsed, {}, added, [], {});
+    const zip = await JSZip.loadAsync(await out.blob.arrayBuffer());
+    const names = Object.keys(zip.files);
+    const rels = await zip.file("xl/_rels/workbook.xml.rels")!.async("string");
+    if (rels.includes("theme/theme1.xml")) expect(names).toContain("xl/theme/theme1.xml");
+    const types = await zip.file("[Content_Types].xml")!.async("string");
+    for (const m of types.matchAll(/PartName="\/([^"]+)"/g)) expect(names).toContain(m[1]);
   });
 });
