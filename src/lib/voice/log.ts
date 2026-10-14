@@ -83,6 +83,13 @@ export async function flagVoiceLog(id: string, note: string): Promise<boolean> {
   return true;
 }
 
+/** The latest records (newest first), read from the account so the list survives a page refresh. */
+export async function recentVoiceLog(limit = 60): Promise<VoiceLogRecord[]> {
+  await flushVoiceLog();
+  const rows = (await cloudDocs.getRecent("voicelog", limit)) as VoiceLogRecord[];
+  return rows.sort((x, y) => y.ts - x.ts);
+}
+
 export async function listVoiceLog(): Promise<VoiceLogRecord[]> {
   await flushVoiceLog();
   const all = (await cloudDocs.getAll("voicelog")) as VoiceLogRecord[];

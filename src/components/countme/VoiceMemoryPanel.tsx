@@ -6,9 +6,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Check, Download, Sparkles, Trash2 } from "lucide-react";
-import { useState } from "react";
-import { useVoice, type TranscriptEntry } from "@/lib/voice/store";
-import { kindLabel, listVoiceLog, voiceLogToCsv, type VoiceLogKind } from "@/lib/voice/log";
+import { useEffect, useState } from "react";
+import { useVoice } from "@/lib/voice/store";
+import {
+  flagVoiceLog,
+  kindLabel,
+  listVoiceLog,
+  recentVoiceLog,
+  voiceLogToCsv,
+  type VoiceLogKind,
+  type VoiceLogRecord,
+} from "@/lib/voice/log";
 
 /** Downloads the durable recognition list (heard / matched / skipped / chosen) as CSV. */
 function VoiceLogExport() {
@@ -79,8 +87,13 @@ function VoiceLogExport() {
 }
 
 /** One line of the recent list, with the "send to Claude to fix" button. */
-export function EntryRow({ entry }: { entry: TranscriptEntry }) {
-  const flagEntry = useVoice((s) => s.flagEntry);
+export function EntryRow({
+  rec,
+  onFlagged,
+}: {
+  rec: VoiceLogRecord;
+  onFlagged: (id: string, note: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -89,24 +102,35 @@ export function EntryRow({ entry }: { entry: TranscriptEntry }) {
   const send = async () => {
     setBusy(true);
     setFailed(false);
-    const ok = await flagEntry(entry.id, note);
+    let ok = false;
+    try {
+      ok = await flagVoiceLog(rec.id, note);
+    } catch {
+      ok = false;
+    }
     setBusy(false);
-    if (ok) setOpen(false);
-    else setFailed(true);
+    if (ok) {
+      setOpen(false);
+      onFlagged(rec.id, note.trim());
+    } else setFailed(true);
   };
+
+  const result = rec.chosen ?? rec.suggested ?? rec.note;
 
   return (
     <div className="text-[12px] text-muted-foreground" data-testid="voice-entry">
       <div className="flex items-start gap-1.5">
         <p className="min-w-0 flex-1">
-          <span className="font-medium text-foreground">S{entry.physicalPage}</span> “
-          {entry.rawTranscript}” · {entry.outcome}
-          {entry.detail ? ` · ${entry.detail}` : ""}
+          <span className="font-medium text-foreground">S{rec.page}</span> “{rec.heard}” ·{" "}
+          {kindLabel[rec.kind]}
+          {result ? ` · ${result}` : ""}
+          {rec.flag?.note ? ` · not: ${rec.flag.note}` : ""}
         </p>
-        {entry.flagged ? (
+        {rec.flag ? (
           <span
             className="inline-flex shrink-0 items-center gap-0.5 text-primary"
             title="Düzeltilmek üzere işaretlendi"
+            data-testid="entry-flagged"
           >
             <Check className="size-3.5" />
           </span>
@@ -122,7 +146,7 @@ export function EntryRow({ entry }: { entry: TranscriptEntry }) {
           </button>
         )}
       </div>
-      {open && !entry.flagged && (
+      {open && !rec.flag && (
         <div className="mt-1 flex gap-1.5">
           <input
             data-testid="flag-note"
@@ -143,6 +167,72 @@ export function EntryRow({ entry }: { entry: TranscriptEntry }) {
         </div>
       )}
       {failed && <p className="mt-0.5 text-destructive">İşaretlenemedi, tekrar deneyin.</p>}
+    </div>
+  );
+}
+
+/** Records that are only steps of another one (the popup, commands) are not listed. */
+const HIDDEN_KINDS: VoiceLogKind[] = ["asked", "command"];
+
+/** The saved voice list, one record per line, newest first. Survives a page refresh. */
+export function RecentVoiceList({ reloadKey = 0 }: { reloadKey?: number }) {
+  const [records, setRecords] = useState<VoiceLogRecord[] | null>(null);
+  const [error, setError] = useState(false);
+
+  const load = async () => {
+    try {
+      setRecords(await recentVoiceLog(80));
+      setError(false);
+    } catch {
+      setError(true);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [reloadKey]);
+
+  const visible = (records ?? []).filter((r) => !HIDDEN_KINDS.includes(r.kind)).slice(0, 40);
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="text-[13px] font-semibold">Son ses kayıtları</h3>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-secondary"
+        >
+          Yenile
+        </button>
+      </div>
+      <p className="mb-1 text-[11px] text-muted-foreground">
+        Yanlış bir kayıt için ✨ simgesine basın; not yazabilirsiniz.
+      </p>
+      <div className="space-y-1.5" data-testid="voice-recent-list">
+        {records === null && !error && (
+          <p className="text-[12px] text-muted-foreground">Yükleniyor…</p>
+        )}
+        {error && (
+          <p className="text-[12px] text-destructive">Kayıtlar okunamadı. Yenile'ye basın.</p>
+        )}
+        {records !== null && visible.length === 0 && (
+          <p className="text-[12px] text-muted-foreground">Henüz kayıt yok.</p>
+        )}
+        {visible.map((r) => (
+          <EntryRow
+            key={r.id}
+            rec={r}
+            onFlagged={(id, note) =>
+              setRecords((all) =>
+                (all ?? []).map((x) =>
+                  x.id === id ? { ...x, flag: { at: Date.now(), note } } : x,
+                ),
+              )
+            }
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -202,14 +292,7 @@ export function VoiceMemoryPanel() {
 
         <VoiceLogExport />
 
-        <div>
-          <h3 className="mb-1 text-[13px] font-semibold">Son ses kayıtları</h3>
-          <div className="space-y-1">
-            {entries.slice(0, 15).map((e) => (
-              <EntryRow key={e.id} entry={e} />
-            ))}
-          </div>
-        </div>
+        <RecentVoiceList reloadKey={entries.length + (open ? 1 : 0) * 1000} />
       </SheetContent>
     </Sheet>
   );
