@@ -13,6 +13,8 @@ export interface AliasRecord {
   lastUsed: number;
   confidence: number;
   source: "USER_SELECTION" | "USER_CORRECTION";
+  /** how many times the learned name was used to match automatically */
+  useCount?: number;
 }
 
 export interface CorrectionRecord {
@@ -52,6 +54,13 @@ const UNITMAP = "unitmap" as const;
 
 /** Same tiny get/put/getAll/delete surface the IndexedDB version had, now backed by the cloud. */
 const db = async () => cloudDocs;
+
+/** Records that a learned name was just used, so it moves to the top of the list. */
+export async function touchAlias(alias: AliasRecord): Promise<AliasRecord> {
+  const next: AliasRecord = { ...alias, lastUsed: Date.now(), useCount: (alias.useCount ?? 0) + 1 };
+  await (await db()).put(ALIASES, next);
+  return next;
+}
 
 export async function listAliases(): Promise<AliasRecord[]> {
   try {
@@ -154,7 +163,12 @@ export async function learnUnitCorrection(input: {
   const id = unitKey(input.rowId, input.spokenUnit, input.spokenQuantity);
   const existing = (await d.get(UNITMAP, id)) as UnitCorrection | undefined;
   const rec: UnitCorrection = existing
-    ? { ...existing, correctedValue: input.correctedValue, count: existing.count + 1, lastUsed: Date.now() }
+    ? {
+        ...existing,
+        correctedValue: input.correctedValue,
+        count: existing.count + 1,
+        lastUsed: Date.now(),
+      }
     : { id, ...input, count: 1, lastUsed: Date.now() };
   await d.put(UNITMAP, rec);
   return rec;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { VoiceLogPanel, VoiceMemoryPanel } from "@/components/countme/VoiceMemoryPanel";
 import { cloudDocs } from "@/lib/countme/cloud";
 import { useVoice } from "@/lib/voice/store";
@@ -52,5 +52,39 @@ describe("learned names and voice records are separate windows", () => {
     await act(async () => useVoice.getState().setLogPanelOpen(true));
     expect(await screen.findByText("Ses Kayıtları")).toBeTruthy();
     expect(useVoice.getState().panelOpen).toBe(false);
+  });
+});
+
+describe("learned names list", () => {
+  const more = (id: string, spoken: string, product: string, lastUsed: number, useCount?: number) => ({
+    ...alias, id, spokenAlias: spoken, normalizedAlias: spoken, targetProductName: product, lastUsed, ...(useCount ? { useCount } : {}),
+  });
+
+  it("shows how often a name was used, most recently used first", async () => {
+    mockCloud();
+    useVoice.setState({
+      panelOpen: true,
+      aliases: [more("a", "kisnis", "KISNIS TANE", 1), more("b", "muskat", "MUSKAT TANE", 5, 3)],
+    } as never);
+    render(<VoiceMemoryPanel />);
+    const items = await screen.findAllByTestId("alias-item");
+    expect(items[0]!.textContent).toContain("muskat");
+    expect(items[0]!.textContent).toContain("3× kullanıldı");
+    expect(items[1]!.textContent).toContain("0× kullanıldı");
+  });
+
+  it("can be searched by the spoken or the product name", async () => {
+    mockCloud();
+    useVoice.setState({
+      panelOpen: true,
+      aliases: [more("a", "kisnis", "KISNIS TANE", 1), more("b", "muskat", "MUSKAT TANE", 5)],
+    } as never);
+    render(<VoiceMemoryPanel />);
+    fireEvent.change(await screen.findByTestId("alias-search"), { target: { value: "muskat" } });
+    expect(screen.getAllByTestId("alias-item")).toHaveLength(1);
+    fireEvent.change(screen.getByTestId("alias-search"), { target: { value: "KİŞNİŞ" } });
+    expect(screen.queryAllByTestId("alias-item")).toHaveLength(0);
+    fireEvent.change(screen.getByTestId("alias-search"), { target: { value: "tane" } });
+    expect(screen.getAllByTestId("alias-item")).toHaveLength(2);
   });
 });
