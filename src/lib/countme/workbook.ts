@@ -65,6 +65,19 @@ function rawValue(cell: any): { value: CellValue; formula?: string } {
 
 const isBlank = (v: CellValue) => v === null || v === undefined || String(v).trim() === "";
 
+/** "Sayım Miktarı" in any spelling: SAYIM MİKTARI, Sayim Miktari, with NBSP or decomposed letters. */
+export function isQuantityHeader(header: string, strict = false): boolean {
+  const folded = header
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/ı/g, "i")
+    .replace(/[^a-z]/g, "");
+  if (folded.includes("sayimmiktar")) return true;
+  // a bare "Miktar" is only accepted for columns that look like counts (not strict)
+  return !strict && /^miktar(i)?$/.test(folded);
+}
+
 export function parseSheet(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ws: any,
@@ -152,12 +165,20 @@ export function parseSheet(
     }
   }
 
-  // Simpra / Cost Result lists have one empty "Sayım Miktarı" column and no TOTAL column: that
-  // column becomes the total of the physical pages, which are added after it.
+  // Simpra / Cost Result lists have a "Sayım Miktarı" column and no TOTAL column: that column
+  // becomes the total of the physical pages, which are added after it. The header is compared in a
+  // folded form (case, Turkish i/ı/İ, accents, odd spaces) so "SAYIM MİKTARI" counts as well, and
+  // other empty count columns do not stop it: they stay page columns.
   if (!columns.some((c) => c.kind === "total")) {
-    const qty = columns.find((c) => c.kind === "count" && /say[ıi]m\s*miktar/i.test(c.header));
-    const counts = columns.filter((c) => c.kind === "count");
-    if (qty && counts.length === 1) qty.kind = "total";
+    // A column headed "Sayım Miktarı" is the total even when it is filled with text such as "-"
+    // (some lists carry a dash in every row, which would otherwise look like a product column).
+    const qty =
+      columns.find((c) => isQuantityHeader(c.header, true)) ??
+      columns.find((c) => c.kind !== "identity" && isQuantityHeader(c.header));
+    if (qty) {
+      qty.kind = "total";
+      qty.defaultWidth = 110;
+    }
   }
 
   // A sheet with no numeric-empty columns still needs entry columns:

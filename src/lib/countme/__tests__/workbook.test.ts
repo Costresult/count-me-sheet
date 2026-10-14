@@ -63,3 +63,73 @@ describe("Simpra layout export", () => {
     expect(ws.getCell("D3").value).toMatchObject({ formula: "SUM(E3:F3)" });
   });
 });
+
+describe("recognizing the 'Sayım Miktarı' column", () => {
+  async function sheetWith(headers: (string | null)[], rows: unknown[][] = [["A", "B", "KILOGRAM", null]]) {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("InventoryCounts");
+    ws.addRow(headers);
+    rows.forEach((r) => ws.addRow(r));
+    return parseSheet(ws);
+  }
+  const kinds = (p: ReturnType<typeof parseSheet>) => p.columns.map((c) => c.kind);
+
+  it.each(["Sayım Miktarı", "SAYIM MİKTARI", "SAYIM MIKTARI", "Sayim Miktari", "Sayım Miktarı", "Sayı̇m Miktarı", " sayım  miktarı "])(
+    "treats %j as the total column",
+    async (header) => {
+      const p = await sheetWith(["Alt Grup", "Stok Malı", "Birim", header]);
+      expect(kinds(p)).toEqual(["identity", "identity", "identity", "total"]);
+    },
+  );
+
+  it("still treats it as the total when the sheet has other empty count columns", async () => {
+    const p = await sheetWith(["Alt Grup", "Stok Malı", "Birim", "Sayım Miktarı", null], [["A", "B", "KILOGRAM", null, 2]]);
+    expect(kinds(p)).toEqual(["identity", "identity", "identity", "total", "count"]);
+  });
+
+  it("does not turn an ordinary count column into a total", async () => {
+    const p = await sheetWith(["Alt Grup", "Stok Malı", "Birim", "Sayım 1"]);
+    expect(kinds(p)).toEqual(["identity", "identity", "identity", "count"]);
+  });
+});
+
+describe("'Sayım Miktarı' filled with dashes (the 34-3 MUT&SARF list)", () => {
+  async function dashed() {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("InventoryCounts");
+    ws.addRow(["Alt Grup", "Stok Malı", "Birim", "Sayım Miktarı"]);
+    for (let i = 0; i < 20; i++) ws.addRow(["SEBZELER TAZE", `URUN ${i}`, "KILOGRAM", "-"]);
+    return { buffer: (await wb.xlsx.writeBuffer()) as ArrayBuffer, parsed: parseSheet(ws) };
+  }
+
+  it("is still the total column", async () => {
+    const { parsed } = await dashed();
+    expect(parsed.columns.map((c) => c.kind)).toEqual(["identity", "identity", "identity", "total"]);
+  });
+
+  it("keeps the list's product columns and sums the pages in D on export", async () => {
+    const { buffer, parsed } = await dashed();
+    const added = [
+      { id: "v1", header: "Sayım 1" },
+      { id: "v2", header: "Sayım 2" },
+      { id: "v3", header: "Sayım 3" },
+    ];
+    const withPages = withAddedColumns(parsed, added)!;
+    const rowId = withPages.rows[0]!.id;
+    const edits = { [editKey(rowId, "v1")]: 1, [editKey(rowId, "v2")]: 2.5, [editKey(rowId, "v3")]: 3 };
+    const out = await exportWithEdits(buffer, "InventoryCounts", withPages, edits, added, [], {});
+    const ws = await load(await out.blob.arrayBuffer());
+    expect(ws.getCell("D2").value).toMatchObject({ formula: "SUM(E2:G2)", result: 6.5 });
+    expect(ws.getCell("D3").value).toMatchObject({ formula: "SUM(E3:G3)" });
+    expect(ws.getCell("E1").value).toBe("Sayım 1");
+    expect(ws.getCell("G1").value).toBe("Sayım 3");
+  });
+
+  it("does not make a bare 'Miktar' text column a total", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("InventoryCounts");
+    ws.addRow(["Alt Grup", "Stok Malı", "Birim", "Miktar"]);
+    for (let i = 0; i < 5; i++) ws.addRow(["A", `U${i}`, "KG", "-"]);
+    expect(parseSheet(ws).columns[3]!.kind).toBe("identity");
+  });
+});
