@@ -197,7 +197,7 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
       );
       if (res && "rowId" in res) {
         return {
-          writes: [{ ...res, formula: `${a.quantity}*${b.quantity}` }],
+          writes: [{ ...res, formula: `${a.expr ?? a.quantity}*${b.expr ?? b.quantity}` }],
           ambiguousRows: null,
           reason: "çarpım",
         };
