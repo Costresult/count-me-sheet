@@ -21,7 +21,7 @@ import {
 } from "./aliases";
 import { primeMicrophone, SpeechCapture, speechSupported } from "./speech";
 import { unitLabel, unitFromToken } from "./units";
-import { logVoice, type VoiceLogKind, type VoiceLogRecord } from "./log";
+import { flagVoiceLog, logVoice, type VoiceLogKind, type VoiceLogRecord } from "./log";
 
 export type VoiceState =
   | "IDLE"
@@ -44,6 +44,8 @@ export interface TranscriptEntry {
   physicalPage: number;
   outcome: "written" | "candidates" | "unmatched" | "command" | "ignored" | "skipped";
   detail: string;
+  /** the user sent this entry in for a fix */
+  flagged?: boolean;
 }
 
 export interface CandidateOption {
@@ -86,6 +88,8 @@ interface VoiceStore {
 
   refreshAliases: () => Promise<void>;
   forgetAlias: (id: string) => Promise<void>;
+  /** marks a list entry for a fix (with an optional note); resolves false when it could not be saved */
+  flagEntry: (entryId: string, note: string) => Promise<boolean>;
   setMode: (mode: MicMode) => void;
   setPanelOpen: (open: boolean) => void;
   startListening: () => Promise<void>;
@@ -187,6 +191,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
     };
     set({ entries: [entry, ...get().entries].slice(0, 40) });
     logVoice({
+      id: entry.id, // same id, so an entry in the list can be flagged later
       sessionId: entry.sessionId,
       kind: e.outcome === "ignored" && /iptal/.test(e.detail) ? "cancelled" : LOG_KIND[e.outcome],
       heard: e.rawTranscript,
@@ -750,6 +755,16 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     refreshAliases: async () =>
       set({ aliases: await listAliases(), corrections: await listUnitCorrections() }),
+    flagEntry: async (entryId, note) => {
+      let ok = false;
+      try {
+        ok = await flagVoiceLog(entryId, note);
+      } catch {
+        ok = false;
+      }
+      if (ok) set({ entries: get().entries.map((e) => (e.id === entryId ? { ...e, flagged: true } : e)) });
+      return ok;
+    },
     forgetAlias: async (id) => {
       await deleteAlias(id);
       set({ aliases: await listAliases() });

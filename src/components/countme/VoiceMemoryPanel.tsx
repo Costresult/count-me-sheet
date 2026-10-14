@@ -1,7 +1,13 @@
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Download, Trash2 } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Check, Download, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useVoice } from "@/lib/voice/store";
+import { useVoice, type TranscriptEntry } from "@/lib/voice/store";
 import { kindLabel, listVoiceLog, voiceLogToCsv, type VoiceLogKind } from "@/lib/voice/log";
 
 /** Downloads the durable recognition list (heard / matched / skipped / chosen) as CSV. */
@@ -19,7 +25,9 @@ function VoiceLogExport() {
       for (const r of all) c[r.kind] = (c[r.kind] ?? 0) + 1;
       setCounts(c);
       if (download) {
-        const url = URL.createObjectURL(new Blob([voiceLogToCsv(all)], { type: "text/csv;charset=utf-8" }));
+        const url = URL.createObjectURL(
+          new Blob([voiceLogToCsv(all)], { type: "text/csv;charset=utf-8" }),
+        );
         const a = document.createElement("a");
         a.href = url;
         a.download = `ses-kayitlari-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -41,8 +49,9 @@ function VoiceLogExport() {
       </p>
       {counts && (
         <p className="text-[12px]" data-testid="voice-log-counts">
-          {(Object.keys(counts) as VoiceLogKind[]).map((k) => `${kindLabel[k]}: ${counts[k]}`).join(" · ") ||
-            "Henüz kayıt yok."}
+          {(Object.keys(counts) as VoiceLogKind[])
+            .map((k) => `${kindLabel[k]}: ${counts[k]}`)
+            .join(" · ") || "Henüz kayıt yok."}
         </p>
       )}
       {error && <p className="text-[12px] text-destructive">{error}</p>}
@@ -69,6 +78,75 @@ function VoiceLogExport() {
   );
 }
 
+/** One line of the recent list, with the "send to Claude to fix" button. */
+export function EntryRow({ entry }: { entry: TranscriptEntry }) {
+  const flagEntry = useVoice((s) => s.flagEntry);
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const send = async () => {
+    setBusy(true);
+    setFailed(false);
+    const ok = await flagEntry(entry.id, note);
+    setBusy(false);
+    if (ok) setOpen(false);
+    else setFailed(true);
+  };
+
+  return (
+    <div className="text-[12px] text-muted-foreground" data-testid="voice-entry">
+      <div className="flex items-start gap-1.5">
+        <p className="min-w-0 flex-1">
+          <span className="font-medium text-foreground">S{entry.physicalPage}</span> “
+          {entry.rawTranscript}” · {entry.outcome}
+          {entry.detail ? ` · ${entry.detail}` : ""}
+        </p>
+        {entry.flagged ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-0.5 text-primary"
+            title="Düzeltilmek üzere işaretlendi"
+          >
+            <Check className="size-3.5" />
+          </span>
+        ) : (
+          <button
+            type="button"
+            data-testid="flag-entry"
+            title="Bu kayıt yanlış: düzeltilmek üzere işaretle"
+            onClick={() => setOpen((v) => !v)}
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded text-primary hover:bg-primary/10"
+          >
+            <Sparkles className="size-3.5" />
+          </button>
+        )}
+      </div>
+      {open && !entry.flagged && (
+        <div className="mt-1 flex gap-1.5">
+          <input
+            data-testid="flag-note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Ne olması gerekirdi? (isteğe bağlı)"
+            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-[12px] text-foreground"
+          />
+          <button
+            type="button"
+            disabled={busy}
+            data-testid="flag-send"
+            onClick={() => void send()}
+            className="rounded bg-primary px-2 py-1 text-[12px] font-semibold text-primary-foreground"
+          >
+            {busy ? "…" : "Düzelt"}
+          </button>
+        </div>
+      )}
+      {failed && <p className="mt-0.5 text-destructive">İşaretlenemedi, tekrar deneyin.</p>}
+    </div>
+  );
+}
+
 /** Review / delete learned pronunciations so a wrong correction can be undone. */
 export function VoiceMemoryPanel() {
   const open = useVoice((s) => s.panelOpen);
@@ -83,12 +161,15 @@ export function VoiceMemoryPanel() {
         <SheetHeader>
           <SheetTitle>Öğrenilen Telaffuzlar</SheetTitle>
           <SheetDescription>
-            Sizin seçimlerinizden öğrenilen eşleştirmeler. Yanlış bir öğrenmeyi buradan silebilirsiniz.
+            Sizin seçimlerinizden öğrenilen eşleştirmeler. Yanlış bir öğrenmeyi buradan
+            silebilirsiniz.
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-2">
-          {aliases.length === 0 && <p className="text-[13px] text-muted-foreground">Henüz kayıt yok.</p>}
+          {aliases.length === 0 && (
+            <p className="text-[13px] text-muted-foreground">Henüz kayıt yok.</p>
+          )}
           {aliases
             .slice()
             .sort((a, b) => b.lastUsed - a.lastUsed)
@@ -99,7 +180,9 @@ export function VoiceMemoryPanel() {
                 className="flex items-center gap-2 rounded-md border border-border p-2 text-[13px]"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">“{a.spokenAlias}” → {a.targetProductName}</p>
+                  <p className="truncate font-semibold">
+                    “{a.spokenAlias}” → {a.targetProductName}
+                  </p>
                   <p className="text-[11px] text-muted-foreground">
                     {a.correctionCount}× · güven {Math.round(a.confidence * 100)}%
                     {a.targetUnit ? ` · ${a.targetUnit}` : ""}
@@ -123,10 +206,7 @@ export function VoiceMemoryPanel() {
           <h3 className="mb-1 text-[13px] font-semibold">Son ses kayıtları</h3>
           <div className="space-y-1">
             {entries.slice(0, 15).map((e) => (
-              <p key={e.id} className="text-[12px] text-muted-foreground">
-                <span className="font-medium text-foreground">S{e.physicalPage}</span> “{e.rawTranscript}” · {e.outcome}
-                {e.detail ? ` · ${e.detail}` : ""}
-              </p>
+              <EntryRow key={e.id} entry={e} />
             ))}
           </div>
         </div>
