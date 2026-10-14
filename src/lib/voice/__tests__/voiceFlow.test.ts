@@ -14,7 +14,7 @@ vi.mock("@/lib/voice/aliases", async (orig) => {
 });
 
 import { cloudDocs } from "@/lib/countme/cloud";
-import { flushVoiceLog, voiceLogToCsv, type VoiceLogRecord } from "@/lib/voice/log";
+import { flagVoiceLog, flushVoiceLog, voiceLogToCsv, type VoiceLogRecord } from "@/lib/voice/log";
 import { useCountMe } from "@/lib/countme/store";
 import { useVoice } from "@/lib/voice/store";
 import { parseSheet } from "@/lib/countme/workbook";
@@ -264,22 +264,20 @@ describe("flagging an entry for a fix", () => {
     useVoice.getState().ingestTranscript("badem kavrulmus 2 kilo 350 gram çarpı 6 adet");
     await wait();
     const entry = useVoice.getState().entries[0]!;
-    expect(await useVoice.getState().flagEntry(entry.id, "14,1 yazmalıydı")).toBe(true);
+    expect(await flagVoiceLog(entry.id, "14,1 yazmalıydı")).toBe(true);
 
     const rec = store.get(entry.id) as VoiceLogRecord;
     expect(rec).toMatchObject({ heard: "badem kavrulmus 2 kilo 350 gram çarpı 6 adet", kind: "matched" });
     expect(rec.flag?.note).toBe("14,1 yazmalıydı");
-    expect(useVoice.getState().entries[0]!.flagged).toBe(true);
     expect(voiceLogToCsv([rec])).toContain("DÜZELT: 14,1 yazmalıydı");
   });
 
-  it("reports failure when the record cannot be saved", async () => {
+  it("fails visibly when the record cannot be read", async () => {
     setup();
     vi.spyOn(cloudDocs, "putMany").mockImplementation(async () => undefined);
     vi.spyOn(cloudDocs, "get").mockRejectedValue(new Error("offline"));
     useVoice.getState().ingestTranscript("badem kavrulmus nokta iki");
     await wait();
-    expect(await useVoice.getState().flagEntry(useVoice.getState().entries[0]!.id, "")).toBe(false);
-    expect(useVoice.getState().entries[0]!.flagged).toBeUndefined();
+    await expect(flagVoiceLog(useVoice.getState().entries[0]!.id, "")).rejects.toThrow("offline");
   });
 });

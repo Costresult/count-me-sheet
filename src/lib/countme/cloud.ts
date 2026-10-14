@@ -33,6 +33,17 @@ export const cloudDocs = {
     return (data ?? []).map((r) => r.data);
   },
 
+  /** Newest documents first, for lists that only need the latest few. */
+  async getRecent(store: DocStore, limit: number): Promise<unknown[]> {
+    const { data, error } = await supabase
+      .from(TABLES[store])
+      .select("data")
+      .order("updated_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? []).map((r) => r.data);
+  },
+
   async get(store: DocStore, id: string): Promise<unknown | undefined> {
     const { data, error } = await supabase
       .from(TABLES[store])
