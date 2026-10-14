@@ -237,6 +237,12 @@ export async function exportWithEdits(
   formulas: Record<string, string> = {},
 ): Promise<{ blob: Blob; warning: string | null }> {
   const wb = await loadWorkbook(originalBuffer);
+  // Lists made by non-Excel exporters carry no theme part. exceljs then writes the package
+  // relationship and content-type entry for xl/theme/theme1.xml but not the file itself, and Excel
+  // answers with its "repair this file?" dialog. Leaving the themes unset makes it write its default.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyWb = wb as any;
+  if (!anyWb._themes || Object.keys(anyWb._themes).length === 0) anyWb._themes = undefined;
   const ws = wb.getWorksheet(sheetName);
   if (!ws) throw new Error("Çalışma sayfası bulunamadı");
   const colById = new Map(parsed.columns.map((c) => [c.id, c]));
