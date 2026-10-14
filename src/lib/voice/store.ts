@@ -83,11 +83,14 @@ interface VoiceStore {
   aliases: AliasRecord[];
   corrections: UnitCorrection[];
   panelOpen: boolean;
+  /** the voice record list (heard / matched / flagged) has its own window */
+  logPanelOpen: boolean;
 
   refreshAliases: () => Promise<void>;
   forgetAlias: (id: string) => Promise<void>;
   setMode: (mode: MicMode) => void;
   setPanelOpen: (open: boolean) => void;
+  setLogPanelOpen: (open: boolean) => void;
   startListening: () => Promise<void>;
   pauseListening: (byUser?: boolean) => void;
   resumeListening: () => void;
@@ -748,6 +751,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
     aliases: [],
     corrections: [],
     panelOpen: false,
+    logPanelOpen: false,
 
     refreshAliases: async () =>
       set({ aliases: await listAliases(), corrections: await listUnitCorrections() }),
@@ -766,6 +770,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
     },
 
     setPanelOpen: (open) => set({ panelOpen: open }),
+    setLogPanelOpen: (open) => set({ logPanelOpen: open }),
 
     startListening: async () => {
       set({ error: null });
