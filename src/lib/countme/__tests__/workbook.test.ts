@@ -133,3 +133,45 @@ describe("'Sayım Miktarı' filled with dashes (the 34-3 MUT&SARF list)", () => 
     expect(parseSheet(ws).columns[3]!.kind).toBe("identity");
   });
 });
+
+describe("pages next to a list with styled empty columns to the right", () => {
+  async function wide(withDataRight = false) {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("InventoryCounts");
+    ws.addRow(["Alt Grup", "Stok Malı", "Birim", "Sayım Miktarı"]);
+    for (let c = 1; c <= 78; c++) ws.getCell(1, c).font = { bold: true }; // E1..BZ1 styled, empty
+    for (let i = 0; i < 6; i++) ws.addRow(["SEBZELER TAZE", `URUN ${i}`, "KILOGRAM", "-"]);
+    if (withDataRight) ws.getCell("L3").value = "NOT";
+    const buffer = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+    return { buffer, parsed: parseSheet(await load(buffer)) };
+  }
+  const added = [1, 2, 3].map((n) => ({ id: `v${n}`, header: `Sayım ${n}` }));
+
+  it("writes the page columns straight into the empty columns (no column shifting)", async () => {
+    const { buffer, parsed } = await wide();
+    const withPages = withAddedColumns(parsed, added)!;
+    const edits = { [editKey(withPages.rows[0]!.id, "v2")]: 2 };
+    const out = await exportWithEdits(buffer, "InventoryCounts", withPages, edits, added, [], {});
+    const ws = await load(await out.blob.arrayBuffer());
+    expect(ws.columnCount).toBe(78); // nothing was pushed to the right
+    expect([ws.getCell("E1").value, ws.getCell("F1").value, ws.getCell("G1").value]).toEqual(["Sayım 1", "Sayım 2", "Sayım 3"]);
+    expect(ws.getCell("F2").value).toBe(2);
+    expect(ws.getCell("D2").value).toMatchObject({ formula: "SUM(E2:G2)", result: 2 });
+  });
+
+  it("falls back to inserting columns when a note column sits right after the counts", async () => {
+    const wb = new ExcelJS.Workbook();
+    const sheet = wb.addWorksheet("InventoryCounts");
+    sheet.addRow(["Alt Grup", "Stok Malı", "Birim", "Sayım Miktarı", null, "Açıklama"]);
+    for (let i = 0; i < 6; i++) sheet.addRow(["SEBZELER TAZE", `URUN ${i}`, "KILOGRAM", "-", i === 0 ? 3 : null, `not ${i}`]);
+    const buffer = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+    const parsed = parseSheet(await load(buffer));
+    expect(parsed.columns.map((c) => c.kind)).toEqual(["identity", "identity", "identity", "total", "count", "identity"]);
+    const withPages = withAddedColumns(parsed, added)!;
+    const out = await exportWithEdits(buffer, "InventoryCounts", withPages, {}, added, [], {});
+    const ws = await load(await out.blob.arrayBuffer());
+    expect(ws.getCell("F2").value).toBeNull(); // the note moved, it was not overwritten
+    expect(ws.getCell("I2").value).toBe("not 0");
+    expect([ws.getCell("F1").value, ws.getCell("H1").value, ws.getCell("I1").value]).toEqual(["Sayım 1", "Sayım 3", "Açıklama"]);
+  });
+});
