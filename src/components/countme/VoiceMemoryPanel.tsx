@@ -242,13 +242,12 @@ export function RecentVoiceList({ reloadKey = 0 }: { reloadKey?: number }) {
   );
 }
 
-/** Review / delete learned pronunciations so a wrong correction can be undone. */
+/** Review / delete learned names so a wrong correction can be undone. Voice records have their own window. */
 export function VoiceMemoryPanel() {
   const open = useVoice((s) => s.panelOpen);
   const setOpen = useVoice((s) => s.setPanelOpen);
   const aliases = useVoice((s) => s.aliases);
   const forget = useVoice((s) => s.forgetAlias);
-  const entries = useVoice((s) => s.entries);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -294,10 +293,30 @@ export function VoiceMemoryPanel() {
               </div>
             ))}
         </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** The saved voice records: counts, CSV download and the list with the "düzelt" button. */
+export function VoiceLogPanel() {
+  const open = useVoice((s) => s.logPanelOpen);
+  const setOpen = useVoice((s) => s.setLogPanelOpen);
+  const entries = useVoice((s) => s.entries);
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetContent side="right" className="flex w-full flex-col gap-3 overflow-y-auto sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Ses Kayıtları</SheetTitle>
+          <SheetDescription>
+            Duyulan her cümle ve ne olduğu. Yanlış bir kayıt için ✨ simgesine basın.
+          </SheetDescription>
+        </SheetHeader>
 
         <VoiceLogExport />
 
-        <RecentVoiceList reloadKey={entries.length + (open ? 1 : 0) * 1000} />
+        {open && <RecentVoiceList reloadKey={entries.length} />}
       </SheetContent>
     </Sheet>
   );

@@ -11,7 +11,7 @@ import { UnmatchedPanel } from "@/components/countme/UnmatchedPanel";
 import { CompleteDialog } from "@/components/countme/CompleteDialog";
 import { MobileVoiceFab } from "@/components/countme/VoicePanel";
 import { VoiceDecisionPopup } from "@/components/countme/VoiceDecisionPopup";
-import { VoiceMemoryPanel } from "@/components/countme/VoiceMemoryPanel";
+import { VoiceLogPanel, VoiceMemoryPanel } from "@/components/countme/VoiceMemoryPanel";
 import { VoiceHotkeys } from "@/components/countme/VoiceHotkeys";
 import { AuthGate } from "@/components/countme/AuthGate";
 import { migrateLocalToCloud } from "@/lib/countme/migrateLocal";
@@ -87,6 +87,7 @@ function Workspace() {
       <VoiceDecisionPopup />
       <MobileVoiceFab />
       <VoiceMemoryPanel />
+      <VoiceLogPanel />
       <VoiceHotkeys />
     </div>
   );
