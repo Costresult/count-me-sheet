@@ -66,13 +66,14 @@ describe("page navigation", () => {
     ws.addRow(["A", "ADACAYI", "KILOGRAM", null, 2]);
     const parsed = parseSheet(ws);
     useCountMe.setState({ parsed, pages: derivePages(parsed), edits: {}, formulas: {}, addedColumns: [], undoStack: [] });
-    expect(Object.values(useCountMe.getState().pages.pageColumns).filter(Boolean)).toHaveLength(2);
+    // "Sayım Miktarı" (D) is the total; only E is a page column to begin with
+    expect(Object.values(useCountMe.getState().pages.pageColumns).filter(Boolean)).toHaveLength(1);
 
     useCountMe.getState().setActivePage(4);
     const cols = useCountMe.getState().pages.pageColumns;
     expect(cols[3]).toBeTruthy();
     expect(cols[4]).toBeTruthy();
     expect(new Set([cols[1], cols[2], cols[3], cols[4]]).size).toBe(4);
-    expect(useCountMe.getState().addedColumns).toHaveLength(2);
+    expect(useCountMe.getState().addedColumns).toHaveLength(3);
   });
 });
