@@ -126,3 +126,24 @@ describe("multiplication spoken in different ways", () => {
     expect(route("malibu .45 x 6").writes).toEqual([["LIKOR LITRE", 2.7]]);
   });
 });
+
+describe("measures added up, then multiplied", () => {
+  const formulaOf = (spoken: string) => {
+    const { match, utterance } = matchProductWithNameNumber(index, parseUtterance(spoken));
+    const rows = index.filter((r) => r.groupKey === match.best!.row.groupKey);
+    return resolveDestination(rows, utterance).writes[0]?.formula;
+  };
+
+  it.each([
+    "badem kavrulmus 2 kilo 350 gram çarpı 6 adet",
+    "badem kavrulmus 2 kilo 350 gram x 6",
+    "badem kavrulmus iki kilo üç yüz elli gram çarpı altı",
+  ])("%s -> 14.1 kg = (2+0.35)*6", (s) => {
+    expect(route(s).writes).toEqual([["CEREZ KILOGRAM", 14.1]]);
+    expect(formulaOf(s)).toBe("(2+0.35)*6");
+  });
+
+  it("adds litres and centilitres before multiplying", () => {
+    expect(route("ananas suyu 1 litre 50 cl çarpı 4").writes).toEqual([["MESRUBAT LITRE", 6]]);
+  });
+});

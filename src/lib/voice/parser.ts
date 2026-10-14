@@ -1,6 +1,6 @@
 import { normalizeText, tokenize } from "./text";
 import { parseDecimalAt, parseNumberAt } from "./numbers";
-import { familyOf, isUnitToken, MILLILITRE_TOKENS, unitFromToken, type UnitCode } from "./units";
+import { familyOf, isUnitToken, MILLILITRE_TOKENS, toCl, toGram, unitFromToken, type UnitCode } from "./units";
 
 export type Operation = "single" | "plus" | "multiply";
 
@@ -8,6 +8,8 @@ export interface SpokenTerm {
   quantity: number;
   spokenUnit: string | null;
   unit: UnitCode | null;
+  /** how a combined amount was built, e.g. "(2+0.35)"; used for the formula kept in the cell */
+  expr?: string;
 }
 
 export interface ParsedUtterance {
@@ -34,6 +36,19 @@ const PLUS = new Set(["arti", "plus", "+", "ve"]);
 const TIMES = new Set(["carpi", "x", "kere", "çarpı"]);
 const NOISE = new Set(["tane", "adetten", "den", "dan", "lik", "luk", "yani", "hemen", "sey", "iste"]);
 const MORE = new Set(["daha", "ekle"]);
+
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/** Converts an amount between units of the same kind (gram↔kg, cl↔litre). */
+function convertAmount(q: number, from: UnitCode, to: UnitCode): number {
+  if (from === to) return q;
+  if (familyOf(from) === "weight") {
+    const g = toGram(q, from);
+    return to === "KG" ? g / 1000 : g;
+  }
+  const cl = toCl(q, from);
+  return to === "L" ? cl / 100 : cl;
+}
 
 /** "35cl", "70CL", "250ml", "1.5lt" spoken as one glued token. */
 const GLUED = /^(\d+(?:[.,]\d+)?)(cl|ml|lt|litre|l|kg|gr|gram|g|adet)$/;
@@ -111,6 +126,7 @@ export function parseUtterance(raw: string): ParsedUtterance {
   const located: Located[] = [];
   const skip = new Set<number>();
   let operation: Operation = "single";
+  let timesIndex = -1;
   let bottleSizeCl: number | null = null;
 
   let i = 0;
@@ -124,7 +140,10 @@ export function parseUtterance(raw: string): ParsedUtterance {
       continue;
     }
     if (TIMES.has(t)) {
-      if (located.length > 0) operation = "multiply";
+      if (located.length > 0) {
+        operation = "multiply";
+        if (timesIndex < 0) timesIndex = i;
+      }
       skip.add(i);
       i++;
       continue;
@@ -194,11 +213,30 @@ export function parseUtterance(raw: string): ParsedUtterance {
     productTokens.push(tokens[k]!);
   }
 
-  const terms: SpokenTerm[] = kept.map(({ quantity, spokenUnit, unit }) => ({
+  let terms: SpokenTerm[] = kept.map(({ quantity, spokenUnit, unit }) => ({
     quantity,
     spokenUnit,
     unit,
   }));
+
+  // "2 kilo 350 gram çarpı 6 adet": the measures before the multiplier are one amount (2.35 kg),
+  // which is then multiplied: (2+0.35)*6.
+  if (operation === "multiply" && timesIndex >= 0 && kept.length >= 3) {
+    const left = kept.filter((t) => t.start < timesIndex);
+    const right = kept.filter((t) => t.start > timesIndex);
+    const families = left.map((t) => (t.unit ? familyOf(t.unit) : "none"));
+    if (left.length >= 2 && right.length >= 1 && families.every((f) => f === families[0] && f !== "count" && f !== "none")) {
+      const first = left[0]!;
+      const parts = left.map((t) => convertAmount(t.quantity, t.unit!, first.unit!));
+      const merged: SpokenTerm = {
+        quantity: round6(parts.reduce((a, b) => a + b, 0)),
+        spokenUnit: first.spokenUnit,
+        unit: first.unit,
+        expr: `(${parts.map((p) => String(round6(p))).join("+")})`,
+      };
+      terms = [merged, ...right.map(({ quantity, spokenUnit, unit }) => ({ quantity, spokenUnit, unit }))];
+    }
+  }
 
   // "1 kilo 500 gram" / "2 litre 50 cl": several measures of the same kind in one sentence are one
   // amount, so they are added together (1.5 kg, 2.5 L) instead of keeping only the first.

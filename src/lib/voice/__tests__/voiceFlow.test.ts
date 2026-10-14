@@ -235,3 +235,16 @@ describe("a number without a product", () => {
     }
   });
 });
+
+describe("sum then multiply, end to end", () => {
+  it("writes (2 kg + 350 g) × 6 as 14.1 kg and keeps the calculation", async () => {
+    const t = setup();
+    useVoice.getState().ingestTranscript("badem kavrulmus 2 kilo 350 gram çarpı 6 adet");
+    await wait();
+    const id = t.rowOf("BADEM KAVRULMUS", "KILOGRAM");
+    const st = useCountMe.getState();
+    const col = st.pages.pageColumns[1]!;
+    expect(st.edits[`${id}|${col}`]).toBeCloseTo(14.1, 6);
+    expect(st.formulas[`${id}|${col}`]).toBe("(2+0.35)*6");
+  });
+});
