@@ -64,3 +64,12 @@ describe("saved voice list", () => {
     expect(await findByText(/Kayıtlar okunamadı/)).toBeTruthy();
   });
 });
+
+describe("fixed records", () => {
+  it("say 'düzeltildi' once the fix is in", async () => {
+    seed(rec({ id: "b", flag: { at: 1, note: "KORİ TOZ 0,735", done: true, fix: "öğrenilen ad cümle içinde de kullanılıyor" } }));
+    const { findByTestId } = render(<RecentVoiceList />);
+    expect((await findByTestId("voice-entry")).textContent).toContain("düzeltildi");
+    expect((await findByTestId("entry-flagged")).getAttribute("title")).toContain("öğrenilen ad");
+  });
+});

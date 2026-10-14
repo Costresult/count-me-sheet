@@ -35,7 +35,8 @@ export interface VoiceLogRecord {
   candidates?: string[] | undefined;
   note?: string | undefined;
   /** the user marked this record as wrong ("düzelt"): what they expected instead, if they said */
-  flag?: { at: number; note: string } | undefined;
+  flag?:
+    { at: number; note: string; done?: boolean | undefined; fix?: string | undefined } | undefined;
 }
 
 const queue: VoiceLogRecord[] = [];
@@ -114,7 +115,19 @@ const csvCell = (v: unknown) => {
 
 /** CSV with a UTF-8 BOM so Excel opens Turkish characters correctly. */
 export function voiceLogToCsv(records: VoiceLogRecord[]): string {
-  const head = ["Zaman", "Sonuç", "Duyulan", "Ürün metni", "Sayfa", "Önerilen / eşleşen", "Seçilen", "Değer", "Diğer adaylar", "Not", "Düzelt notu"];
+  const head = [
+    "Zaman",
+    "Sonuç",
+    "Duyulan",
+    "Ürün metni",
+    "Sayfa",
+    "Önerilen / eşleşen",
+    "Seçilen",
+    "Değer",
+    "Diğer adaylar",
+    "Not",
+    "Düzelt notu",
+  ];
   const rows = records.map((r) => [
     new Date(r.ts).toLocaleString("tr-TR"),
     kindLabel[r.kind],

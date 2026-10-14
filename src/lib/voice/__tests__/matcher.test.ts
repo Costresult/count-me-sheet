@@ -59,3 +59,30 @@ describe("recognizer punctuation and spoken name numbers", () => {
     expect(route("chivas on üç 34 cl").name).toBe("WHY CHIVAS 13 EXTRA");
   });
 });
+
+describe("learned names inside a longer sentence", () => {
+  const alias = (spoken: string, target: string) =>
+    ({
+      id: spoken, spokenAlias: spoken, normalizedAlias: spoken, targetProductIdentity: target,
+      targetProductName: target, targetUnit: null, correctionCount: 1, lastUsed: 0, confidence: 0.45,
+      source: "USER_SELECTION",
+    }) as never;
+
+  it("uses a learned name even when an extra word is said ('köri toz' after learning 'köri')", () => {
+    // without the alias the extra word 'toz' pulls another product
+    expect(matchProduct(index, "malibu toz").best?.row.name).not.toBe("WHY JACK DANIELS APPLE");
+    const m = matchProduct(index, "jek toz", [alias("jek", "WHY JACK DANIELS APPLE")]);
+    expect(m.best?.row.name).toBe("WHY JACK DANIELS APPLE");
+    expect(m.confidence).toBe("HIGH");
+  });
+
+  it("does not change anything when the learned name is not in the sentence", () => {
+    const m = matchProduct(index, "malibu", [alias("jek", "WHY JACK DANIELS APPLE")]);
+    expect(m.best?.row.name).toBe("LQR MALIBU");
+  });
+
+  it("lets a product whose own words all match win over a learned name", () => {
+    const m = matchProduct(index, "chivas 18", [alias("chivas", "WHY CHIVAS 12 YRS")]);
+    expect(m.best?.row.name).toBe("WHY CHIVAS 18 YRS");
+  });
+});
