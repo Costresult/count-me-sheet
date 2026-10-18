@@ -21,7 +21,14 @@ import {
   type AliasRecord,
   type UnitCorrection,
 } from "./aliases";
-import { primeMicrophone, SpeechCapture, speechSupported } from "./speech";
+import { primeMicrophone, SpeechCapture, speechSupported, type Capture, type SpeechEvents } from "./speech";
+import {
+  preloadWhisper,
+  unsubscribeStatus,
+  WhisperCapture,
+  whisperSupported,
+  type EngineStatus,
+} from "./whisper";
 import { unitLabel, unitFromToken } from "./units";
 import { logVoice, type VoiceLogKind, type VoiceLogRecord } from "./log";
 
@@ -73,8 +80,25 @@ export interface CandidatePrompt {
   kind: "product" | "unit";
 }
 
+/** "standard" = the browser's speech recognition, "advanced" = Whisper (Turkish + English) in the browser */
+export type VoiceEngine = "standard" | "advanced";
+const ENGINE_KEY = "countme.voiceEngine";
+
+const readEngine = (): VoiceEngine => {
+  try {
+    return localStorage.getItem(ENGINE_KEY) === "advanced" ? "advanced" : "standard";
+  } catch {
+    return "standard";
+  }
+};
+
 interface VoiceStore {
   supported: boolean;
+  engine: VoiceEngine;
+  /** download / start-up state of the advanced engine's model */
+  engineStatus: EngineStatus;
+  /** model download progress, 0-100 */
+  engineProgress: number;
   mode: MicMode;
   state: VoiceState;
   interim: string;
@@ -91,6 +115,7 @@ interface VoiceStore {
   refreshAliases: () => Promise<void>;
   forgetAlias: (id: string) => Promise<void>;
   setMode: (mode: MicMode) => void;
+  setEngine: (engine: VoiceEngine) => void;
   setPanelOpen: (open: boolean) => void;
   setLogPanelOpen: (open: boolean) => void;
   startListening: () => Promise<void>;
@@ -118,7 +143,7 @@ interface VoiceStore {
 const uid = (p: string) =>
   `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-let capture: SpeechCapture | null = null;
+let capture: Capture | null = null;
 const queue: string[] = [];
 let draining = false;
 /** Auto-pauses the microphone when a decision stays open, so nothing deadlocks. */
@@ -667,7 +692,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   const ensureCapture = () => {
     if (capture) return capture;
-    capture = new SpeechCapture({
+    const events: SpeechEvents = {
       onFinal: (text) => get().ingestTranscript(text),
       onInterim: (text) => set({ interim: text }),
       onError: (code) =>
@@ -683,7 +708,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
       onEnd: () => {
         if (get().state === "LISTENING") set({ state: "IDLE" });
       },
-    });
+    };
+    capture = get().engine === "advanced" ? new WhisperCapture(events) : new SpeechCapture(events);
     return capture;
   };
 
@@ -750,6 +776,9 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
   return {
     supported: typeof window !== "undefined" ? speechSupported() : false,
+    engine: typeof window !== "undefined" ? readEngine() : "standard",
+    engineStatus: "idle",
+    engineProgress: 0,
     mode: "continuous",
     state: "IDLE",
     interim: "",
@@ -778,6 +807,37 @@ export const useVoice = create<VoiceStore>((set, get) => {
       }
     },
 
+    setEngine: (engine) => {
+      if (engine === get().engine) return;
+      capture?.hardStop();
+      capture = null;
+      queue.length = 0;
+      try {
+        localStorage.setItem(ENGINE_KEY, engine);
+      } catch {
+        /* private mode: the choice just is not remembered */
+      }
+      set({ engine, state: "IDLE", interim: "", queueLength: 0, error: null });
+      if (engine === "advanced") {
+        if (!whisperSupported()) {
+          set({ error: "Bu tarayıcı Gelişmiş sesi desteklemiyor. Standart'a dönün." });
+          return;
+        }
+        // start the model download right away, so it is ready by the time counting starts
+        const listener = (status: EngineStatus, detail?: { progress?: number; message?: string }) => {
+          set({
+            engineStatus: status,
+            ...(detail?.progress !== undefined ? { engineProgress: Math.round(detail.progress) } : {}),
+            ...(status === "error"
+              ? { error: `Gelişmiş ses yüklenemedi: ${detail?.message ?? "bilinmeyen hata"}` }
+              : {}),
+          });
+          if (status === "ready" || status === "error") unsubscribeStatus(listener);
+        };
+        preloadWhisper(listener);
+      }
+    },
+
     setPanelOpen: (open) => set({ panelOpen: open }),
     setLogPanelOpen: (open) => set({ logPanelOpen: open }),
 
@@ -788,15 +848,18 @@ export const useVoice = create<VoiceStore>((set, get) => {
         set({ state: "ERROR", error: micError });
         return;
       }
-      if (!speechSupported()) {
+      const advanced = get().engine === "advanced";
+      if (advanced ? !whisperSupported() : !speechSupported()) {
         set({
           state: "ERROR",
-          error: "Bu tarayıcı ses tanımayı desteklemiyor (Chrome veya Edge önerilir).",
+          error: advanced
+            ? "Bu tarayıcı Gelişmiş sesi desteklemiyor. Standart'a dönün."
+            : "Bu tarayıcı ses tanımayı desteklemiyor (Chrome veya Edge önerilir).",
         });
         return;
       }
       const c = ensureCapture();
-      c.start(get().mode === "continuous");
+      void c.start(get().mode === "continuous");
       set({ state: "LISTENING", supported: true });
       if (useCountMe.getState().status !== "RUNNING") useCountMe.getState().setStatus("RUNNING");
       void get().refreshAliases();
@@ -813,7 +876,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       // queued speech is always flushed first, even if the microphone fails to restart
       void (async () => {
         await drain();
-        if (capture) capture.start(get().mode === "continuous");
+        if (capture) void capture.start(get().mode === "continuous");
         else await get().startListening();
       })();
     },
@@ -833,7 +896,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
         return;
       }
       const c = ensureCapture();
-      c.start(false);
+      void c.start(false);
       set({ state: "LISTENING", error: null });
     },
 
@@ -944,7 +1007,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
         // never resolves an open decision: only capture restarts
         if (get().prompt) {
           set({ error: null });
-          if (capture) capture.start(get().mode === "continuous");
+          if (capture) void capture.start(get().mode === "continuous");
           else void get().startListening();
           return;
         }
