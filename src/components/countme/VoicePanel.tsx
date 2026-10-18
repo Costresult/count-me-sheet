@@ -11,6 +11,8 @@ import {
   ListPlus,
   Loader2,
   ScrollText,
+  Sparkles,
+  AudioLines,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useVoice, type VoiceState } from "@/lib/voice/store";
@@ -115,6 +117,34 @@ export function VoicePanel() {
         {v.queueLength > 0 && <span className="tabular-nums">· {v.queueLength}</span>}
         <span className="text-muted-foreground">· S{page}</span>
       </span>
+
+      <div className="grid grid-cols-2 gap-1" data-testid="voice-engine">
+        <VBtn
+          testid="voice-engine-standard"
+          icon={AudioLines}
+          label="STANDART"
+          active={v.engine === "standard"}
+          onClick={() => v.setEngine("standard")}
+        />
+        <VBtn
+          testid="voice-engine-advanced"
+          icon={Sparkles}
+          label="GELİŞMİŞ"
+          active={v.engine === "advanced"}
+          onClick={() => v.setEngine("advanced")}
+        />
+      </div>
+      <p className="px-0.5 text-[10px] leading-snug text-muted-foreground" data-testid="voice-engine-hint">
+        {v.engine === "standard"
+          ? "Tarayıcının Türkçe ses tanıması."
+          : v.engineStatus === "loading"
+            ? `Gelişmiş ses indiriliyor… %${v.engineProgress}`
+            : v.engineStatus === "ready"
+              ? "Türkçe + İngilizce, bilgisayarınızda çalışır."
+              : v.engineStatus === "error"
+                ? "Yüklenemedi. Standart'a dönebilirsiniz."
+                : "Türkçe + İngilizce. İlk açılışta model indirilir."}
+      </p>
 
       <VBtn
         testid="voice-mode-continuous"

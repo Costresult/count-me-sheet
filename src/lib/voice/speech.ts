@@ -8,6 +8,13 @@ export interface SpeechEvents {
   onStart?: () => void;
 }
 
+/** What the voice store needs from a recognition engine (browser "Standart" or Whisper "Gelişmiş"). */
+export interface Capture {
+  start: (continuous: boolean) => void | Promise<void>;
+  stop: () => void;
+  hardStop: () => void;
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyRecognition = any;
 
