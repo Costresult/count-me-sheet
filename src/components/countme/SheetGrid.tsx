@@ -243,7 +243,7 @@ export function SheetGrid() {
               }}
               className={cn(
                 "group relative flex shrink-0 items-center border-r border-border bg-[var(--grid-header)] px-2",
-                col.kind === "total" && "bg-[var(--grid-total-header)]",
+                col.kind === "total" && "justify-center bg-[var(--grid-total-header)]",
                 col.id === activeColumnId && "bg-primary/15 ring-1 ring-inset ring-primary/40",
               )}
               onDoubleClick={() => autoFit(col)}
@@ -255,7 +255,7 @@ export function SheetGrid() {
             >
               {col.kind === "total" ? (
                 // the header never shares its line with the badge, so the full name always fits
-                <span className="flex min-w-0 flex-col leading-tight" data-testid="total-header">
+                <span className="flex min-w-0 flex-col items-center text-center leading-tight" data-testid="total-header">
                   <span className="whitespace-nowrap text-[12px] font-semibold text-foreground">
                     {col.header}
                   </span>
