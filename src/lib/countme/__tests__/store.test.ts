@@ -77,3 +77,14 @@ describe("page navigation", () => {
     expect(useCountMe.getState().addedColumns).toHaveLength(3);
   });
 });
+
+describe("total column width", () => {
+  it("never narrower than the full 'Sayım Miktarı' header", async () => {
+    const { columnWidth } = await import("@/lib/countme/store");
+    const { TOTAL_MIN_WIDTH } = await import("@/lib/countme/workbook");
+    const col = { id: "c4", kind: "total", defaultWidth: 110 } as never;
+    const narrow = { columnWidths: { c4: 80 } } as never;
+    expect(columnWidth(narrow, col)).toBe(TOTAL_MIN_WIDTH);
+    expect(columnWidth({ columnWidths: { c4: 220 } } as never, col)).toBe(220);
+  });
+});

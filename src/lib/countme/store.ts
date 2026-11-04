@@ -9,7 +9,13 @@ import {
   setActiveId,
 } from "./storage";
 import { appendReading } from "./calc";
-import { exportWithEdits, loadWorkbook, parseSheet, withAddedColumns } from "./workbook";
+import {
+  exportWithEdits,
+  loadWorkbook,
+  parseSheet,
+  TOTAL_MIN_WIDTH,
+  withAddedColumns,
+} from "./workbook";
 import { derivePages, MAX_PAGES, pageColumnId } from "./pages";
 import {
   type AddedColumn,
@@ -1073,5 +1079,8 @@ export const useCountMe = create<CountMeState>((set, get) => {
   };
 });
 
-export const columnWidth = (view: ViewPrefs, col: SheetColumn) =>
-  view.columnWidths[col.id] ?? col.defaultWidth;
+export const columnWidth = (view: ViewPrefs, col: SheetColumn) => {
+  const w = view.columnWidths[col.id] ?? col.defaultWidth;
+  // the total column keeps room for its full header, also in sessions that saved a narrower width
+  return col.kind === "total" ? Math.max(w, TOTAL_MIN_WIDTH) : w;
+};
