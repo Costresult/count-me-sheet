@@ -253,15 +253,20 @@ export function SheetGrid() {
               }}
               title={`${col.header} (${col.letter})`}
             >
-              <span className="truncate text-[12px] font-semibold text-foreground">{col.header}</span>
+              {col.kind === "total" ? (
+                // the header never shares its line with the badge, so the full name always fits
+                <span className="flex min-w-0 flex-col leading-tight" data-testid="total-header">
+                  <span className="whitespace-nowrap text-[12px] font-semibold text-foreground">
+                    {col.header}
+                  </span>
+                  <span className="text-[9px] uppercase text-muted-foreground">hesap</span>
+                </span>
+              ) : (
+                <span className="truncate text-[12px] font-semibold text-foreground">{col.header}</span>
+              )}
               {col.id === activeColumnId && (
                 <span className="ml-1 shrink-0 rounded bg-primary px-1 text-[9px] font-bold uppercase text-primary-foreground">
                   s{pages.activePage}
-                </span>
-              )}
-              {col.kind === "total" && (
-                <span className="ml-1 shrink-0 rounded bg-secondary px-1 text-[9px] uppercase text-muted-foreground">
-                  hesap
                 </span>
               )}
               <div
