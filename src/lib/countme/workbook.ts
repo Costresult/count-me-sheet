@@ -33,6 +33,9 @@ export async function readSheetNames(buffer: ArrayBuffer): Promise<string[]> {
   return wb.worksheets.map((ws: any) => ws.name as string);
 }
 
+/** wide enough for the "Sayım Miktarı" header plus the HESAP badge */
+export const TOTAL_MIN_WIDTH = 150;
+
 export const colLetter = (n: number) => {
   let s = "";
   let x = n;
@@ -162,7 +165,7 @@ export function parseSheet(
     const mostlyFormula = sample.length > 0 && formulas >= Math.max(2, sample.length * 0.4);
     if (headerIsTotal || mostlyFormula) {
       col.kind = "total";
-      col.defaultWidth = 110;
+      col.defaultWidth = TOTAL_MIN_WIDTH;
     } else if (IDENTITY_RE.test(col.header) || (filled > 0 && text >= filled * 0.7)) {
       col.kind = "identity";
       col.defaultWidth = /(ürün|urun|malzeme|isim|ad|product|item|name|a[çc][ıi]klama)/i.test(
@@ -188,7 +191,7 @@ export function parseSheet(
       columns.find((c) => c.kind !== "identity" && isQuantityHeader(c.header));
     if (qty) {
       qty.kind = "total";
-      qty.defaultWidth = 110;
+      qty.defaultWidth = TOTAL_MIN_WIDTH;
     }
   }
 
