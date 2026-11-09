@@ -74,3 +74,61 @@ export const similarity = (a: string, b: string): number => {
   if (max === 0) return 1;
   return 1 - levenshtein(a, b) / max;
 };
+
+/**
+ * Consonant skeleton of a spoken or written word, for matching English brand names the recognizer
+ * wrote with Turkish spelling ("yagermaister" ~ "jagermeister", "ceymson" ~ "jameson").
+ * Vowels carry little of what a recognizer gets right, so they are dropped; letters that sound alike
+ * stay distinct but are cheap to confuse (see {@link skeletonDistance}). Digits are ignored.
+ */
+export function skeletonKey(s: string): string {
+  let t = foldTr(s)
+    .replace(/[^a-z]/g, "")
+    .replace(/ph/g, "f")
+    .replace(/ch|sh/g, "S")
+    .replace(/ck/g, "k")
+    .replace(/q/g, "k")
+    .replace(/x/g, "ks")
+    .replace(/w/g, "v")
+    .replace(/^y/, "j") // "yagermaister" ~ "jagermeister"
+    .replace(/[aeiouy]/g, "");
+  t = t.replace(/s/g, "S").replace(/(.)\1+/g, "$1");
+  return t.toUpperCase();
+}
+
+const SOFT: Record<string, number> = {};
+const soft = (a: string, b: string, cost: number) => {
+  SOFT[a + b] = cost;
+  SOFT[b + a] = cost;
+};
+soft("B", "P", 0.4);
+soft("D", "T", 0.4);
+soft("G", "K", 0.4);
+soft("V", "F", 0.4);
+soft("Z", "S", 0.5);
+soft("C", "J", 0.4);
+soft("C", "K", 0.4);
+soft("C", "S", 0.3); // folded "ç" is how "ch" is usually heard
+soft("J", "G", 0.5);
+soft("J", "K", 0.6);
+soft("M", "N", 0.7);
+
+/** Edit distance over skeletons where sound-alike letters cost less than a full substitution. */
+export function skeletonDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const sub = a[i - 1] === b[j - 1] ? 0 : (SOFT[a[i - 1]! + b[j - 1]!] ?? 1);
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + sub);
+    }
+    prev = cur;
+  }
+  return prev[b.length]!;
+}
+
+export const skeletonSimilarity = (a: string, b: string): number => {
+  const max = Math.max(a.length, b.length);
+  return max === 0 ? 1 : 1 - skeletonDistance(a, b) / max;
+};

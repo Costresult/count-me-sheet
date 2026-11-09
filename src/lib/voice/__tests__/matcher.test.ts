@@ -86,3 +86,34 @@ describe("learned names inside a longer sentence", () => {
     expect(m.best?.row.name).toBe("WHY CHIVAS 18 YRS");
   });
 });
+
+describe("sound-alike matching of brand names heard in Turkish spelling", () => {
+  const top = (q: string) => {
+    const m = matchProduct(index, q);
+    return { name: m.best?.row.name, confidence: m.confidence };
+  };
+
+  it.each([
+    ["yagermaister", "JAGERMEISTER"],
+    ["ceymson", "JAMESON"],
+    ["tanker ay", "TANQUERAY"],
+    ["hendriks", "HENDRICKS"],
+    ["beylis", "BAILEYS"],
+    ["korona", "CORONA"],
+  ])("%s is offered as %s", (spoken, want) => {
+    expect(top(spoken).name).toContain(want);
+  });
+
+  it("never writes a sound-alike on its own: it asks", () => {
+    for (const spoken of ["yagermaister", "ceymson", "tanker ay"]) {
+      expect(top(spoken).confidence).not.toBe("HIGH");
+    }
+  });
+
+  it("does not let a vowel-blind collision beat the real name", () => {
+    expect(top("baileys").name).toBe("LQR BAILEYS");
+    expect(top("baileys").confidence).toBe("HIGH");
+    // "civas" must not become "ceviz"
+    expect(top("sivas oniki").name).toBe("WHY CHIVAS 12 YRS");
+  });
+});

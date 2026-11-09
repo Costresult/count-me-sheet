@@ -5,7 +5,13 @@ import { appendReading } from "@/lib/countme/calc";
 import { parseUtterance, type ParsedUtterance } from "./parser";
 import { parseCommand } from "./commands";
 import { buildProductIndex, type ProductRow } from "./productIndex";
-import { candidateGroups, matchProductWithNameNumber, type MatchConfidence } from "./matcher";
+import {
+  candidateGroups,
+  matchProductWithNameNumber,
+  mergeMatches,
+  type MatchConfidence,
+  type MatchResult,
+} from "./matcher";
 import { normalizeForTargetUnit, resolveDestination, type UnitConfidence } from "./unitResolver";
 import { familyOf } from "./units";
 import {
@@ -21,7 +27,14 @@ import {
   type AliasRecord,
   type UnitCorrection,
 } from "./aliases";
-import { primeMicrophone, SpeechCapture, speechSupported, type Capture, type SpeechEvents } from "./speech";
+import {
+  primeMicrophone,
+  SpeechCapture,
+  speechSupported,
+  type Capture,
+  type SpeechAlternative,
+  type SpeechEvents,
+} from "./speech";
 import {
   preloadWhisper,
   unsubscribeStatus,
@@ -125,7 +138,7 @@ interface VoiceStore {
   pushToTalkStart: () => Promise<void>;
   pushToTalkEnd: () => void;
   /** Feeds a transcript into the engine (mic or automated tests). */
-  ingestTranscript: (text: string) => void;
+  ingestTranscript: (text: string, alternatives?: SpeechAlternative[]) => void;
   chooseCandidate: (index: number) => Promise<void>;
   /** Explicit row pick from the stock search inside the popup. */
   chooseRow: (rowId: string) => Promise<void>;
@@ -140,11 +153,38 @@ interface VoiceStore {
   toggleListening: () => void;
 }
 
+/** quantities and units of an utterance, to tell hearings that differ only in the product name */
+const amountSignature = (u: ParsedUtterance): string =>
+  `${u.operation}:` + u.terms.map((t) => `${t.quantity}|${t.unit ?? ""}`).join(";");
+
+/** Matches of the recognizer's alternative hearings that agree with the main one on the amounts. */
+function alternativeMatches(
+  index: ProductRow[],
+  main: ParsedUtterance,
+  alternatives: SpeechAlternative[],
+  aliases: AliasRecord[],
+): Array<{ match: MatchResult; weight: number }> {
+  const out: Array<{ match: MatchResult; weight: number }> = [];
+  const seen = new Set<string>([main.normalizedTranscript]);
+  for (const alt of alternatives.slice(0, 3)) {
+    const u = parseUtterance(alt.text);
+    if (!u.productText || seen.has(u.normalizedTranscript)) continue;
+    seen.add(u.normalizedTranscript);
+    const named = matchProductWithNameNumber(index, u, aliases);
+    if (amountSignature(named.utterance) !== amountSignature(main)) continue;
+    if (!named.match.best) continue;
+    out.push({ match: named.match, weight: 0.9 + 0.1 * Math.max(0, Math.min(1, alt.confidence)) });
+  }
+  return out;
+}
+
 const uid = (p: string) =>
   `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 let capture: Capture | null = null;
 const queue: string[] = [];
+/** the recognizer's other hearings of a queued sentence, looked up by its main text */
+const alternativesByRaw = new Map<string, SpeechAlternative[]>();
 let draining = false;
 /** Auto-pauses the microphone when a decision stays open, so nothing deadlocks. */
 let promptTimer: ReturnType<typeof setTimeout> | null = null;
@@ -535,6 +575,8 @@ export const useVoice = create<VoiceStore>((set, get) => {
   };
 
   const processOne = async (raw: string) => {
+    const alternatives = alternativesByRaw.get(raw) ?? [];
+    alternativesByRaw.delete(raw);
     if (handleCommand(raw)) return;
     let u = parseUtterance(raw);
     const parsed = cme().parsed;
@@ -559,8 +601,15 @@ export const useVoice = create<VoiceStore>((set, get) => {
 
     const index = catalogue;
     const named = matchProductWithNameNumber(index, u, get().aliases);
-    const match = named.match;
+    let match = named.match;
     u = named.utterance;
+
+    // The recognizer's other hearings only help when the main one is doubtful, and only those that
+    // carry the same numbers and units: they may change which product is meant, never the amounts.
+    if (match.confidence !== "HIGH" && alternatives.length > 1) {
+      const others = alternativeMatches(index, parseUtterance(raw), alternatives, get().aliases);
+      if (others.length > 0) match = mergeMatches(match, others);
+    }
 
     if (!match.best) {
       toUnmatched(u, "eşleşme bulunamadı");
@@ -610,7 +659,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
       if (options.length === 0)
         for (const r of bestRows) push(r, u.terms[0]?.quantity ?? 0, r.unitText, match.best.score);
     } else {
-      for (const c of candidateGroups(match.candidates).slice(0, 4)) {
+      for (const c of candidateGroups(match.candidates).slice(0, 3)) {
         const rows = groupRows(index, c.row.groupKey);
         const d = resolveDestination(rows, u);
         if (d.writes.length > 0) {
@@ -693,7 +742,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
   const ensureCapture = () => {
     if (capture) return capture;
     const events: SpeechEvents = {
-      onFinal: (text) => get().ingestTranscript(text),
+      onFinal: (text, alternatives) => get().ingestTranscript(text, alternatives),
       onInterim: (text) => set({ interim: text }),
       onError: (code) =>
         set({
@@ -905,9 +954,10 @@ export const useVoice = create<VoiceStore>((set, get) => {
       set({ state: get().queueLength > 0 ? "PROCESSING" : "IDLE", interim: "" });
     },
 
-    ingestTranscript: (text) => {
+    ingestTranscript: (text, alternatives) => {
       const raw = text.trim();
       if (!raw) return;
+      if (alternatives && alternatives.length > 1) alternativesByRaw.set(raw, alternatives);
       set({ interim: "" });
       queue.push(raw);
       set({ queueLength: queue.length });
