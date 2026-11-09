@@ -1,7 +1,13 @@
 /* Thin wrapper around the browser SpeechRecognition API (Chrome/Edge/Safari iOS 15+). */
 
+/** One hearing of the same utterance; `confidence` is the recognizer's own 0..1 estimate. */
+export interface SpeechAlternative {
+  text: string;
+  confidence: number;
+}
+
 export interface SpeechEvents {
-  onFinal: (text: string) => void;
+  onFinal: (text: string, alternatives?: SpeechAlternative[]) => void;
   onInterim: (text: string) => void;
   onError: (code: string) => void;
   onEnd: () => void;
@@ -85,7 +91,15 @@ export class SpeechCapture {
         const result = event.results[i];
         const text = String(result[0]?.transcript ?? "").trim();
         if (!text) continue;
-        if (result.isFinal) this.events.onFinal(text);
+        if (result.isFinal) {
+          const alternatives: SpeechAlternative[] = [];
+          for (let k = 0; k < result.length; k++) {
+            const alt = result[k];
+            const t = String(alt?.transcript ?? "").trim();
+            if (t) alternatives.push({ text: t, confidence: Number(alt?.confidence ?? 0) || 0 });
+          }
+          this.events.onFinal(text, alternatives);
+        }
         else interim += ` ${text}`;
       }
       if (interim.trim()) this.events.onInterim(interim.trim());

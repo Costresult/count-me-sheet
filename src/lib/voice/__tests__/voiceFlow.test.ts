@@ -302,3 +302,39 @@ describe("a learned name that was used", () => {
     expect(used.confidence).toBeCloseTo(0.5, 6);
   });
 });
+
+describe("the recognizer's alternative hearings", () => {
+  let t: ReturnType<typeof setup>;
+  beforeEach(() => {
+    t = setup();
+  });
+  const alts = (...texts: string[]) => texts.map((text, i) => ({ text, confidence: i === 0 ? 0.6 : 0.3 }));
+
+  it("offers the product from another hearing, and never writes it unasked", async () => {
+    useVoice.getState().ingestTranscript(
+      "izmir nof 2 şişe",
+      alts("izmir nof 2 şişe", "smirnof 2 şişe", "ismir nof 2 şişe"),
+    );
+    await wait();
+    expect(t.written()).toEqual([]); // a guess is never written
+    const labels = useVoice.getState().prompt?.options.map((o) => o.label) ?? [];
+    expect(labels.some((l) => l.includes("SMIRNOFF"))).toBe(true);
+  });
+
+  it("ignores a hearing whose numbers differ from the main one", async () => {
+    useVoice.getState().ingestTranscript(
+      "izmir nof 2 şişe",
+      alts("izmir nof 2 şişe", "smirnof 5 şişe"),
+    );
+    await wait();
+    // the only difference is a different amount: it must not influence the answer
+    const prompt = useVoice.getState().prompt;
+    expect(prompt?.utterance.terms[0]?.quantity).toBe(2);
+  });
+
+  it("keeps working with a single hearing", async () => {
+    useVoice.getState().ingestTranscript("barbare blush 8 şişe", alts("barbare blush 8 şişe"));
+    await wait();
+    expect(t.written()).toEqual([["SR BARBARE BLUSH 75 CL|SISE 75 CL", 8]]);
+  });
+});
