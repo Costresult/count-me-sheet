@@ -347,3 +347,17 @@ describe("decimal under 1 with 'cl' is the row's own unit", () => {
     expect(t.written()).toEqual([["LQR MALIBU|LITRE", 0.9]]);
   });
 });
+
+describe("a doubtful product with 'x.xx cl' keeps the litre reading in the popup", () => {
+  it("offers 0.75 (not 0.0075) when the name had to be asked", async () => {
+    setup();
+    useVoice.getState().ingestTranscript("izmir nof 0.75 CL");
+    await wait();
+    const prompt = useVoice.getState().prompt;
+    expect(prompt).not.toBeNull();
+    const values = prompt!.options.map((o) => o.value);
+    expect(values).toContain(0.75);
+    expect(values).not.toContain(0.0075);
+  });
+});
+

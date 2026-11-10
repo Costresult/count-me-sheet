@@ -665,7 +665,7 @@ export const useVoice = create<VoiceStore>((set, get) => {
         if (d.writes.length > 0) {
           const w = d.writes[0]!;
           const row = index.find((r) => r.rowId === w.rowId) ?? c.row;
-          push(row, w.value, w.note, c.score);
+          push(row, w.value, w.note, c.score, w.fixed === true);
         } else if (d.options.length > 0) {
           for (const o of d.options.slice(0, 2)) push(o.row, o.value, o.note, c.score);
         } else {

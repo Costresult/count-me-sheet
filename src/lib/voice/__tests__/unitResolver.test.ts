@@ -156,4 +156,9 @@ describe("measures added up, then multiplied", () => {
     expect(route("malibu 45 cl").writes).toEqual([["LIKOR LITRE", 0.45]]);
     expect(route("malibu yarım cl").writes).toEqual([["LIKOR LITRE", 0.005]]);
   });
+
+  it("the spoken bottle size picks the bottle row ('35'lik 3 şişe')", () => {
+    expect(route("tekirdağ göbek 35'lik 3 şişe").writes).toEqual([["RAKI SISE 35 CL", 3]]);
+    expect(route("tekirdağ göbek 70'lik 8 şişe").writes).toEqual([["RAKI SISE 70 CL", 8]]);
+  });
 });
