@@ -135,3 +135,11 @@ describe("what Whisper actually produced in the field log", () => {
     expect(match.best?.row.name).toBe("WHY JACK DANIELS BONDED RYE");
   });
 });
+
+describe("regression: 'gin' heard as 'cin'", () => {
+  it("'cinmara capri' is Ginmare Capri and still confident", () => {
+    const m = matchProduct(index, "cinmara capri");
+    expect(m.best?.row.name).toBe("CIN GINMARE CAPRI");
+    expect(m.confidence).toBe("HIGH");
+  });
+});
