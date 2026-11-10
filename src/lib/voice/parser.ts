@@ -108,7 +108,15 @@ function bottleSizeToken(token: string): number | null {
   return null;
 }
 
-export function parseUtterance(raw: string): ParsedUtterance {
+/**
+ * Whisper writes "Chivas Regal 12 sıfır nokta altmış" as "12.0.60": a name number glued to a decimal.
+ * Two points in one number cannot be a value, so the second decimal starts a new number.
+ */
+const splitGluedDecimals = (raw: string): string =>
+  raw.replace(/(\d+)[.,](0[.,]\d+)/g, "$1 $2");
+
+export function parseUtterance(rawInput: string): ParsedUtterance {
+  const raw = splitGluedDecimals(rawInput);
   const normalizedTranscript = normalizeText(raw);
   const tokens = expandTokens(tokenize(raw));
   const rawTrimmed = raw.trim();

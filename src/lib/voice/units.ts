@@ -7,6 +7,8 @@ export type UnitFamily = "count" | "weight" | "volume";
 const VARIANTS: Record<string, UnitCode> = {
   adet: "ADET", ad: "ADET", tane: "ADET", pcs: "ADET", piece: "ADET",
   sise: "SISE", sisesi: "SISE", siseden: "SISE", bottle: "SISE", sis: "SISE",
+  // "iki şişe" heard as "iki kişi" / "iki kişe": nobody counts people in an inventory
+  kisi: "SISE", kise: "SISE",
   koli: "KOLI", kolisi: "KOLI", kasa: "KOLI", case: "KOLI",
   paket: "PAKET", pkt: "PAKET", pack: "PAKET",
   fici: "FICI", varil: "FICI", keg: "FICI",

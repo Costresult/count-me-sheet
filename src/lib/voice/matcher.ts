@@ -96,6 +96,19 @@ function scoreRow(
     // the recognizer often appends a syllable ("barbareros" for "barbare")
     if (rowTokens.some((rt) => rt.length >= 5 && t.length > rt.length && t.startsWith(rt)))
       return true;
+    // a short word heard with another vowel ("ray" for "rye"): same length, first letter and consonants
+    if (
+      t.length >= 3 &&
+      t.length <= 4 &&
+      rowNameTokens(row).some(
+        (rt) =>
+          rt.length === t.length &&
+          rt[0] === t[0] &&
+          rt !== t &&
+          skeletonKey(rt) === skeletonKey(t),
+      )
+    )
+      return true;
     // English brand names spoken with Turkish pronunciation ("cek deniels" ~ "jack daniels")
     // (the vowel-blind phonetic key alone is too loose: "civas" ~ "ceviz", so the consonants must agree too)
     const qp = queryPhonTokens[qi];
@@ -289,14 +302,27 @@ export function matchProductWithNameNumber(
 ): { match: MatchResult; utterance: ParsedUtterance } {
   const plain = matchProduct(index, u.productText, aliases);
   const first = u.terms[0];
-  if (
-    plain.confidence === "HIGH" ||
-    !first ||
-    first.unit !== null ||
-    !Number.isInteger(first.quantity)
-  ) {
+  if (!first || first.unit !== null || !Number.isInteger(first.quantity)) {
     return { match: plain, utterance: u };
   }
+  const moved = (text: string): ParsedUtterance => ({
+    ...u,
+    productText: text,
+    terms: u.terms.slice(1),
+    quantity: u.terms[1]?.quantity ?? null,
+    spokenUnit: u.terms[1]?.spokenUnit ?? null,
+    normalizedQuantity: u.terms[1]?.quantity ?? null,
+    normalizedUnit: u.terms[1]?.unit ?? null,
+  });
+  // "chivas regal 12 0.60": the product's own name has that 12 and another amount follows it,
+  // so the 12 is part of the name, not an amount
+  if (u.terms.length > 1 && plain.best?.row.tokens.includes(String(first.quantity))) {
+    return {
+      match: matchProduct(index, `${u.productText} ${first.quantity}`, aliases),
+      utterance: moved(`${u.productText} ${first.quantity}`),
+    };
+  }
+  if (plain.confidence === "HIGH") return { match: plain, utterance: u };
   const withNumber = matchProduct(index, `${u.productText} ${first.quantity}`, aliases);
   const numberInName = withNumber.best?.row.tokens.includes(String(first.quantity)) ?? false;
   // a name that clearly improves once the number is part of it also takes the number
@@ -307,18 +333,7 @@ export function matchProductWithNameNumber(
     plain.best !== null &&
     withNumber.best.score >= plain.best.score + 0.05;
   if ((withNumber.confidence === "HIGH" || clearlyBetter) && numberInName) {
-    return {
-      match: withNumber,
-      utterance: {
-        ...u,
-        productText: `${u.productText} ${first.quantity}`,
-        terms: u.terms.slice(1),
-        quantity: u.terms[1]?.quantity ?? null,
-        spokenUnit: u.terms[1]?.spokenUnit ?? null,
-        normalizedQuantity: u.terms[1]?.quantity ?? null,
-        normalizedUnit: u.terms[1]?.unit ?? null,
-      },
-    };
+    return { match: withNumber, utterance: moved(`${u.productText} ${first.quantity}`) };
   }
   return { match: plain, utterance: u };
 }
