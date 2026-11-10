@@ -8,6 +8,8 @@ export interface ResolvedWrite {
   note: string;
   /** how the value was calculated ("18*4"); kept in the cell so it can be checked later */
   formula?: string;
+  /** the value is final: no unit normalisation or learned correction is applied to it */
+  fixed?: boolean;
 }
 
 export interface UnitResolution {
@@ -393,23 +395,20 @@ export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Dest
     return d;
   const row = rows.find((r) => r.rowId === w.rowId);
   if (!row || row.unitInfo.unit !== "L") return d;
-  // "0,9 cl" is under one centilitre: a nearly empty bottle is read in litres, and the recognizer
-  // often writes the litre unit as "SL"/"cl" ("0.70 SL"). Never written silently as 0.009 L.
+  // A decimal under 1 spoken with "cl" ("0,9 cl", written "0.90 SL" by the recognizer) is an amount
+  // in the row's own unit: the counter reads a nearly empty bottle in litres. Never 0.009 litre.
   if (
-    !/\byarim\b/.test(u.normalizedTranscript) && // "yarım cl" is meant
+    !/\byarim\b/.test(u.normalizedTranscript) && // "yarım cl" really is half a centilitre
     Number.isFinite(term.quantity) &&
     !Number.isInteger(term.quantity) &&
     term.quantity > 0 &&
     term.quantity < 1
   ) {
     return {
-      writes: [],
-      confidence: "MEDIUM",
-      options: [
-        { row, value: term.quantity, note: `${term.quantity} litre`, fixed: true },
-        { row, value: w.value, note: `${term.quantity} cl (= ${w.value} litre)`, fixed: true },
-      ],
-      reason: "bir santilitreden az",
+      writes: [{ ...w, value: term.quantity, note: `${term.quantity} litre`, fixed: true }],
+      confidence: "HIGH",
+      options: [],
+      reason: "ondalık cl satırın kendi birimi (litre) olarak okundu",
     };
   }
   if (w.value < SUSPICIOUS_LITRES) return d;
