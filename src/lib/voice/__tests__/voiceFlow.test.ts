@@ -338,3 +338,12 @@ describe("the recognizer's alternative hearings", () => {
     expect(t.written()).toEqual([["SR BARBARE BLUSH 75 CL|SISE 75 CL", 8]]);
   });
 });
+
+describe("decimal under 1 with 'cl' is the row's own unit", () => {
+  it("writes 'malibu 0.90 SL' as 0.9 litre in the sheet", async () => {
+    const t = setup();
+    useVoice.getState().ingestTranscript("malibu 0.90 SL");
+    await wait();
+    expect(t.written()).toEqual([["LQR MALIBU|LITRE", 0.9]]);
+  });
+});
