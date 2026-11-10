@@ -392,7 +392,27 @@ export function resolveDestination(rows: ProductRow[], u: ParsedUtterance): Dest
   )
     return d;
   const row = rows.find((r) => r.rowId === w.rowId);
-  if (!row || row.unitInfo.unit !== "L" || w.value < SUSPICIOUS_LITRES) return d;
+  if (!row || row.unitInfo.unit !== "L") return d;
+  // "0,9 cl" is under one centilitre: a nearly empty bottle is read in litres, and the recognizer
+  // often writes the litre unit as "SL"/"cl" ("0.70 SL"). Never written silently as 0.009 L.
+  if (
+    !/\byarim\b/.test(u.normalizedTranscript) && // "yarım cl" is meant
+    Number.isFinite(term.quantity) &&
+    !Number.isInteger(term.quantity) &&
+    term.quantity > 0 &&
+    term.quantity < 1
+  ) {
+    return {
+      writes: [],
+      confidence: "MEDIUM",
+      options: [
+        { row, value: term.quantity, note: `${term.quantity} litre`, fixed: true },
+        { row, value: w.value, note: `${term.quantity} cl (= ${w.value} litre)`, fixed: true },
+      ],
+      reason: "bir santilitreden az",
+    };
+  }
+  if (w.value < SUSPICIOUS_LITRES) return d;
   return {
     writes: [],
     confidence: "MEDIUM",
