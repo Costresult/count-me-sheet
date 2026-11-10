@@ -488,6 +488,21 @@ function resolveDestinationRaw(rows: ProductRow[], u: ParsedUtterance): Destinat
     }
   }
 
+  // "35'lik 3 şişe": the spoken bottle size picks the matching bottle row of the product
+  if (term.unit === "SISE" && u.bottleSizeCl !== null) {
+    const sized = rows.filter(
+      (r) => r.unitInfo.unit === "SISE" && r.unitInfo.sizeCl === u.bottleSizeCl,
+    );
+    if (sized.length === 1) {
+      return {
+        writes: [{ rowId: sized[0]!.rowId, value: round(term.quantity), note: `${u.bottleSizeCl} cl şişe` }],
+        confidence: "HIGH",
+        options: [],
+        reason: "şişe boyu",
+      };
+    }
+  }
+
   const scored = rows
     .map((r) => {
       const c = classify(r, term);
