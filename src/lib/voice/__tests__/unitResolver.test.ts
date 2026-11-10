@@ -146,4 +146,18 @@ describe("measures added up, then multiplied", () => {
   it("adds litres and centilitres before multiplying", () => {
     expect(route("ananas suyu 1 litre 50 cl çarpı 4").writes).toEqual([["MESRUBAT LITRE", 6]]);
   });
+
+  it("asks for '0.9 cl' instead of writing 0.009 litre (a nearly empty bottle is read in litres)", () => {
+    const r = route("malibu 0.90 cl");
+    expect(r.writes).toEqual([]);
+    expect(r.options).toEqual([
+      ["LIKOR LITRE", 0.9],
+      ["LIKOR LITRE", 0.009],
+    ]);
+  });
+
+  it("still writes whole centilitres and 'yarım cl' directly", () => {
+    expect(route("malibu 45 cl").writes).toEqual([["LIKOR LITRE", 0.45]]);
+    expect(route("malibu yarım cl").writes).toEqual([["LIKOR LITRE", 0.005]]);
+  });
 });
