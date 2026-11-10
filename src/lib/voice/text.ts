@@ -108,6 +108,7 @@ soft("V", "F", 0.4);
 soft("Z", "S", 0.5);
 soft("C", "J", 0.4);
 soft("C", "K", 0.4);
+soft("C", "G", 0.3); // "gin" is written "cin"
 soft("C", "S", 0.3); // folded "ç" is how "ch" is usually heard
 soft("J", "G", 0.5);
 soft("J", "K", 0.6);
