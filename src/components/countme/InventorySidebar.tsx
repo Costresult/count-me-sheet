@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useCountMe } from "@/lib/countme/store";
 import { statusLabels, type SessionMeta } from "@/lib/countme/types";
 import { cn } from "@/lib/utils";
+import { buildLabel } from "@/lib/buildInfo";
 import { VoicePanel } from "./VoicePanel";
 import {
   DropdownMenu,
@@ -310,6 +311,9 @@ export function SidebarPanel() {
         >
           Oturumu kapat
         </button>
+        <p className="mt-1 px-1 text-[10px] text-muted-foreground/70" data-testid="build-label">
+          Sürüm: {buildLabel()}
+        </p>
       </div>
     </div>
   );

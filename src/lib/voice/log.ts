@@ -1,4 +1,5 @@
 import { cloudDocs } from "@/lib/countme/cloud";
+import { BUILD_TIME } from "@/lib/buildInfo";
 
 /**
  * Durable list of what the recognizer heard and what happened to it, so recognition mistakes
@@ -22,6 +23,8 @@ export interface VoiceLogRecord {
   kind: VoiceLogKind;
   /** exactly what the recognizer returned */
   heard: string;
+  /** build time of the app that wrote the record (which version handled this sentence) */
+  build?: string | undefined;
   /** the product text left after parsing numbers/units */
   productText?: string | undefined;
   page: number;
@@ -60,6 +63,7 @@ async function flush() {
 export function logVoice(rec: Omit<VoiceLogRecord, "id" | "ts"> & { id?: string; ts?: number }) {
   queue.push({
     ...rec,
+    build: BUILD_TIME,
     id: rec.id ?? `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     ts: rec.ts ?? Date.now(),
   });
