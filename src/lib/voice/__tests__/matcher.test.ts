@@ -117,3 +117,21 @@ describe("sound-alike matching of brand names heard in Turkish spelling", () => 
     expect(top("sivas oniki").name).toBe("WHY CHIVAS 12 YRS");
   });
 });
+
+describe("what Whisper actually produced in the field log", () => {
+  it("reads 'Chivas Regal 12.0.60' as Chivas 12 and 0.60", () => {
+    const { match, utterance } = matchProductWithNameNumber(index, parseUtterance("Chivas Regal 12.0.60"));
+    expect(match.best?.row.name).toBe("WHY CHIVAS 12 YRS");
+    expect(utterance.terms[0]?.quantity).toBeCloseTo(0.6);
+  });
+
+  it("reads 'iki kişi' as 2 bottles", () => {
+    const u = parseUtterance("barbare blush iki kişi");
+    expect(u.terms[0]).toMatchObject({ quantity: 2, unit: "SISE" });
+  });
+
+  it("'Jack Bond ray' is Bonded Rye, not plain Bonded", () => {
+    const { match } = matchProductWithNameNumber(index, parseUtterance("Jack Bond ray 0.25"));
+    expect(match.best?.row.name).toBe("WHY JACK DANIELS BONDED RYE");
+  });
+});
