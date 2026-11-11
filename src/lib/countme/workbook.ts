@@ -6,6 +6,7 @@ import type {
   SheetColumn,
   SheetRow,
 } from "./types";
+import { reconcileFormula } from "./calc";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyWorkbook = any;
@@ -370,7 +371,9 @@ export async function exportWithEdits(
     const cell = ws.getRow(row.rowNumber).getCell(colNumber);
     // never overwrite a formula
     if (cell.value && typeof cell.value === "object" && "formula" in cell.value) continue;
-    const body = formulas[key];
+    // the formula must evaluate to the value Excel will show; otherwise the plain number is written
+    const body =
+      value !== null && formulas[key] ? (reconcileFormula(formulas[key]!, value) ?? undefined) : undefined;
     cell.value = value === null ? null : body ? { formula: body, result: value } : value;
     // cells holding several readings are red in Excel too, so they are easy to check
     if (body)

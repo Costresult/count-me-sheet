@@ -198,8 +198,20 @@ export function resolveUnitDestination(rows: ProductRow[], u: ParsedUtterance): 
         u.bottleSizeCl,
       );
       if (res && "rowId" in res) {
+        // the cell holds the row's unit (0.96 kg), so the formula must too: "160 gram x 6" is 0.16*6
+        const scale = total !== 0 ? round(res.value / total) : 1;
+        const part = (t: SpokenTerm) => t.expr ?? String(t.quantity);
+        const measureText = measure === a ? part(a) : part(b);
+        const countText = measure === a ? part(b) : part(a);
+        const scaled =
+          scale === 1
+            ? measureText
+            : measure.expr
+              ? `(${measureText})*${scale}`
+              : String(round(measure.quantity * scale));
+        const formula = measure === a ? `${scaled}*${countText}` : `${countText}*${scaled}`;
         return {
-          writes: [{ ...res, formula: `${a.expr ?? a.quantity}*${b.expr ?? b.quantity}` }],
+          writes: [{ ...res, formula }],
           ambiguousRows: null,
           reason: "çarpım",
         };

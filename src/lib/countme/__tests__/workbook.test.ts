@@ -197,3 +197,37 @@ describe("package integrity", () => {
     for (const m of types.matchAll(/PartName="\/([^"]+)"/g)) expect(names).toContain(m[1]);
   });
 });
+
+describe("formulas written to Excel always evaluate to the cell's value", () => {
+  it("scales a gram formula stored beside a kilogram value, and drops one it cannot trust", async () => {
+    const { evalFormula, reconcileFormula } = await import("@/lib/countme/calc");
+    expect(evalFormula("(2+0.35)*6")).toBeCloseTo(14.1);
+    expect(evalFormula("2.964+350*3")).toBeCloseTo(1052.964);
+    expect(reconcileFormula("0.16*6", 0.96)).toBe("0.16*6");
+    expect(evalFormula(reconcileFormula("160*6", 0.96)!)).toBeCloseTo(0.96);
+    expect(evalFormula(reconcileFormula("500*8", 4)!)).toBeCloseTo(4);
+    expect(reconcileFormula("2.964+350*3", 4.014)).toBeNull();
+    expect(reconcileFormula("not a formula", 1)).toBeNull();
+  });
+
+  it("exports the stored session formulas ('160*6' beside 0.96) so Excel shows 0.96", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("InventoryCounts");
+    ws.addRow(["Alt Grup", "Stok Malı", "Birim", "Sayım Miktarı"]);
+    ws.addRow(["MAKARNA", "MAKARNA PENNE", "KILOGRAM", null]);
+    ws.addRow(["MAKARNA", "MAKARNA ERISTE", "KILOGRAM", null]);
+    const buffer = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+    const added = [{ id: "v1", header: "Sayım 1" }, { id: "v3", header: "Sayım 3" }];
+    const parsed = withAddedColumns(parseSheet(await load(buffer)), added)!;
+    const [a, b] = [parsed.rows[0]!.id, parsed.rows[1]!.id];
+    const edits = { [editKey(a, "v3")]: 0.96, [editKey(b, "v1")]: 4.014 };
+    const formulas = { [editKey(a, "v3")]: "160*6", [editKey(b, "v1")]: "2.964+350*3" };
+    const out = await exportWithEdits(buffer, "InventoryCounts", parsed, edits, added, [], formulas);
+    const sheet = await load(await out.blob.arrayBuffer());
+    const { evalFormula } = await import("@/lib/countme/calc");
+    const penne = sheet.getCell("F2").value as { formula: string };
+    expect(evalFormula(penne.formula)).toBeCloseTo(0.96);
+    expect(sheet.getCell("E3").value).toBe(4.014); // untrustworthy formula: the plain number
+  });
+});
+

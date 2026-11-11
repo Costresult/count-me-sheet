@@ -73,3 +73,72 @@ export function appendReading(
 
 /** "0.8+1.6" -> "0,8+1,6" (Turkish decimal comma) for display. */
 export const formatFormula = (body: string): string => body.replace(/\./g, ",");
+
+/** Evaluates a plain arithmetic formula body ("0.2+0.34", "(2+0.35)*6"); null when it is anything else. */
+export function evalFormula(body: string): number | null {
+  const src = body.replace(/\s+/g, "");
+  let i = 0;
+  const num = (): number | null => {
+    const m = /^\d*\.?\d+(?:e[+-]?\d+)?/i.exec(src.slice(i));
+    if (!m) return null;
+    i += m[0].length;
+    return Number(m[0]);
+  };
+  const factor = (): number | null => {
+    if (src[i] === "(") {
+      i++;
+      const v = expr();
+      if (v === null || src[i] !== ")") return null;
+      i++;
+      return v;
+    }
+    if (src[i] === "-") {
+      i++;
+      const v = factor();
+      return v === null ? null : -v;
+    }
+    return num();
+  };
+  const term = (): number | null => {
+    let v = factor();
+    while (v !== null && (src[i] === "*" || src[i] === "/")) {
+      const op = src[i++];
+      const r = factor();
+      if (r === null) return null;
+      v = op === "*" ? v * r : v / r;
+    }
+    return v;
+  };
+  const expr = (): number | null => {
+    let v = term();
+    while (v !== null && (src[i] === "+" || src[i] === "-")) {
+      const op = src[i++];
+      const r = term();
+      if (r === null) return null;
+      v = op === "+" ? v + r : v - r;
+    }
+    return v;
+  };
+  const out = expr();
+  return out !== null && i === src.length && Number.isFinite(out) ? out : null;
+}
+
+/**
+ * A formula kept next to a cell must evaluate to the cell's value, because Excel recalculates it.
+ * Older sessions stored the spoken amounts ("160*6" grams) beside a value in the row's unit (0.96 kg).
+ * Returns the formula to write: unchanged, scaled by a power of ten when that is exactly the
+ * difference, or null when it cannot be trusted (the plain number is written instead).
+ */
+export function reconcileFormula(body: string, value: number): string | null {
+  const v = evalFormula(body);
+  if (v === null) return null;
+  const tol = 1e-9 * Math.max(1, Math.abs(value));
+  if (Math.abs(v - value) <= tol) return body;
+  if (v === 0 || value === 0) return null;
+  const ratio = value / v;
+  for (const k of [-3, -2, -1, 1, 2, 3]) {
+    const p = 10 ** k;
+    if (Math.abs(ratio - p) <= 1e-9 * p) return `(${body})*${k < 0 ? (1 / 10 ** -k).toString() : p}`;
+  }
+  return null;
+}
