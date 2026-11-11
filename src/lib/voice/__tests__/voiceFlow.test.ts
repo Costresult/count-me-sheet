@@ -361,3 +361,25 @@ describe("a doubtful product with 'x.xx cl' keeps the litre reading in the popup
   });
 });
 
+describe("formulas keep the row's unit (no 960 in Excel for 0.96 kg)", () => {
+  it("'badem 160 gram çarpı 6' stores 0.16*6 beside 0.96", async () => {
+    setup();
+    useVoice.getState().ingestTranscript("badem kavrulmus 160 gram çarpı 6");
+    await wait();
+    const { edits, formulas } = useCountMe.getState();
+    const key = Object.keys(edits)[0]!;
+    expect(edits[key]).toBeCloseTo(0.96);
+    expect(formulas[key]).toBe("0.16*6");
+  });
+
+  it("'badem 2 kilo 350 gram çarpı 6 adet' keeps the kilo formula", async () => {
+    setup();
+    useVoice.getState().ingestTranscript("badem kavrulmus 2 kilo 350 gram çarpı 6 adet");
+    await wait();
+    const { edits, formulas } = useCountMe.getState();
+    const key = Object.keys(edits)[0]!;
+    expect(edits[key]).toBeCloseTo(14.1);
+    expect(formulas[key]).toBe("(2+0.35)*6");
+  });
+});
+
